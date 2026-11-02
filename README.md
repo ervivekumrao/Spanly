@@ -1,6 +1,6 @@
-# Time Span Selector
+# Spanly
 
-A highly customizable, elegant Time Span Selector library for Android, featuring both **Circular** (Radial) and **Linear** designs. Perfect for scheduling, alarm settings, and any time-duration selection needs.
+A highly customizable, high-performance, elegant Time Span Selector library for Android, featuring both **Circular** (Radial) and **Linear** designs. Perfect for scheduling, alarm settings, shift planning, and time-duration selection.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 

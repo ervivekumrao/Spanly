@@ -401,4 +401,33 @@ public class TimeSpanSelectorTest {
         assertEquals(0xFF333333, linearSelector.getSpanTextColor());
         assertEquals(0xFF333333, linearSelector.getTickLabelColor());
     }
+
+    @Test
+    public void testDurationClampingWithoutOvernight() {
+        linearSelector.setThumbMinuteStep(1);
+        linearSelector.setOvernightSpanAllowed(false);
+        linearSelector.setMinDurationMinutes(60);
+
+        // Attempt to set end before start - should clamp and enforce min duration without wrapping across midnight
+        linearSelector.setSpanInMinutes(600, 500);
+        assertTrue("End must be >= start", linearSelector.getSpanEndInMinutes() >= linearSelector.getSpanStartInMinutes());
+        assertFalse("Must not be overnight", linearSelector.isOvernight());
+        assertTrue("Duration must satisfy minDuration", linearSelector.getDurationInMinutes() >= 60);
+    }
+
+    @Test
+    public void testStateSaveAndRestore() {
+        Context context = ApplicationProvider.getApplicationContext();
+        CircularTimeSpanSelector original = new CircularTimeSpanSelector(context);
+        original.setSpanInMinutes(480, 960);
+
+        android.os.Parcelable savedState = original.onSaveInstanceState();
+        assertNotNull(savedState);
+
+        CircularTimeSpanSelector restored = new CircularTimeSpanSelector(context);
+        restored.onRestoreInstanceState(savedState);
+
+        assertEquals(480, restored.getSpanStartInMinutes());
+        assertEquals(960, restored.getSpanEndInMinutes());
+    }
 }

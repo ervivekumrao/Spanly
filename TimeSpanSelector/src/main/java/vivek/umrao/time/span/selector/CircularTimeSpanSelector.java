@@ -21,7 +21,6 @@ import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.PointF;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -35,10 +34,12 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.graphics.drawable.DrawableCompat;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /**
- * A circular time span selector view.
+ * A high-performance circular time span selector view.
  */
 public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
     private static final float DEGREES_IN_CIRCLE = 360f;
@@ -59,6 +60,22 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
 
     private Thumb activeThumb = Thumb.NONE;
     private AccessibilityManager accessibilityManager;
+
+    private static class CircularLabelItem {
+        final float x;
+        final float y;
+        final String[] lines;
+
+        CircularLabelItem(float x, float y, String[] lines) {
+            this.x = x;
+            this.y = y;
+            this.lines = lines;
+        }
+    }
+
+    private final List<CircularLabelItem> cachedTickLabels = new ArrayList<>();
+    private final float[] hourTickLines = new float[(int) HOURS_IN_DAY * 4];
+    private final float[] minuteTickLines = new float[72 * 4];
 
     public CircularTimeSpanSelector(Context context) {
         this(context, null);
@@ -247,11 +264,6 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         spanTextPaint.setTypeface(Typeface.create(Typeface.DEFAULT, spanTextStyle));
     }
 
-    /**
-     * Set the color of the span summary text for the circular selector.
-     *
-     * @param color The text color.
-     */
     @Override
     public void setSpanTextColor(int color) {
         super.setSpanTextColor(color);
@@ -259,16 +271,18 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         invalidate();
     }
 
-    /**
-     * Set the color of the tick labels for the circular selector.
-     *
-     * @param color The label color.
-     */
     @Override
     public void setTickLabelColor(int color) {
         super.setTickLabelColor(color);
         tickLabelPaint.setColor(tickLabelColor);
+        updateTickGeometry();
         invalidate();
+    }
+
+    @Override
+    public void set24HourFormat(boolean is24HourFormat) {
+        super.set24HourFormat(is24HourFormat);
+        updateTickGeometry();
     }
 
     @Override
@@ -290,7 +304,7 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
 
         if (heightMode != MeasureSpec.EXACTLY) {
             float safePadding = Math.max(thumbRadius + thumbElevation, trackWidth / 2f) + thumbStrokeWidth + dp(4);
-            int minHeight = (int) (dp(200) + safePadding * 2 + textSpace); // reasonable default
+            int minHeight = (int) (dp(200) + safePadding * 2 + textSpace);
             height = resolveSize(minHeight, heightMeasureSpec);
         }
         setMeasuredDimension(width, height);
@@ -304,16 +318,17 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         float margin = dp(12);
 
         if (isSpanTextShown) {
-            String text = getFormattedSpanText();
-            String[] lines = text.split("\n");
-            Paint.FontMetrics fm = spanTextPaint.getFontMetrics();
-            float lineHeight = fm.descent - fm.ascent;
-            float totalBlockHeight = lines.length * lineHeight;
+            String[] lines = getCachedSpanTextLines();
+            if (lines != null) {
+                Paint.FontMetrics fm = spanTextPaint.getFontMetrics();
+                float lineHeight = fm.descent - fm.ascent;
+                float totalBlockHeight = lines.length * lineHeight;
 
-            if (spanTextPosition == SpanTextPosition.TOP) {
-                textSpaceTop = totalBlockHeight + margin;
-            } else if (spanTextPosition == SpanTextPosition.BOTTOM) {
-                textSpaceBottom = totalBlockHeight + margin;
+                if (spanTextPosition == SpanTextPosition.TOP) {
+                    textSpaceTop = totalBlockHeight + margin;
+                } else if (spanTextPosition == SpanTextPosition.BOTTOM) {
+                    textSpaceBottom = totalBlockHeight + margin;
+                }
             }
         }
 
@@ -324,14 +339,73 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         float availableWidth = w - getPaddingLeft() - getPaddingRight();
 
         viewRadius = Math.min(availableWidth, availableHeight) / 2f - safePadding;
-
-        // Center the ring in the available space after accounting for text
         cy = getPaddingTop() + textSpaceTop + (availableHeight / 2f);
 
         if (viewRadius > 0) {
             drawingOval.set(cx - viewRadius, cy - viewRadius, cx + viewRadius, cy + viewRadius);
+            updateTickGeometry();
         } else {
             drawingOval.setEmpty();
+        }
+    }
+
+    /**
+     * Precomputes tick line coordinates and label positions to avoid onDraw allocations.
+     */
+    private void updateTickGeometry() {
+        if (viewRadius <= 0) return;
+        float tickBaseRadius = viewRadius - trackWidth / 2f - tickDistanceFromTrack;
+        Paint.FontMetrics fm = tickLabelPaint.getFontMetrics();
+        float lineHeight = fm.descent - fm.ascent;
+
+        int hourIdx = 0;
+        cachedTickLabels.clear();
+
+        for (int h = 0; h < (int) HOURS_IN_DAY; h++) {
+            float angle = h * DEGREES_PER_HOUR;
+            double rad = Math.toRadians(angle - 90);
+            float cos = (float) Math.cos(rad);
+            float sin = (float) Math.sin(rad);
+
+            float r1 = tickBaseRadius - hourTickHeight;
+            float r2 = tickBaseRadius;
+
+            if (hourIdx + 4 <= hourTickLines.length) {
+                hourTickLines[hourIdx++] = cx + r1 * cos;
+                hourTickLines[hourIdx++] = cy + r1 * sin;
+                hourTickLines[hourIdx++] = cx + r2 * cos;
+                hourTickLines[hourIdx++] = cy + r2 * sin;
+            }
+
+            if (showTickLabels && h % 2 == 0) {
+                String label = formatTickLabel(h);
+                float labelRadius = viewRadius - trackWidth / 2f - tickLabelDistanceFromTick;
+                float lx = cx + labelRadius * cos;
+                float ly = cy + labelRadius * sin;
+
+                String[] lines = label.split("\n");
+                float totalBlockHeight = (lines.length - 1) * lineHeight + (fm.descent - fm.ascent);
+                float textY = ly - totalBlockHeight / 2f - fm.ascent;
+                cachedTickLabels.add(new CircularLabelItem(lx, textY, lines));
+            }
+        }
+
+        int minIdx = 0;
+        for (int m = 15; m < TimeUtils.MINUTES_IN_DAY; m += 15) {
+            if (m % 60 == 0) continue;
+            float angle = minutesToAngle(m);
+            double rad = Math.toRadians(angle - 90);
+            float cos = (float) Math.cos(rad);
+            float sin = (float) Math.sin(rad);
+
+            float r1 = tickBaseRadius - minuteTickHeight;
+
+            if (minIdx + 4 <= minuteTickLines.length) {
+                minuteTickLines[minIdx++] = cx + r1 * cos;
+                minuteTickLines[minIdx++] = cy + r1 * sin;
+                minuteTickLines[minIdx++] = cx + tickBaseRadius * cos;
+                minuteTickLines[minIdx++] = cy + tickBaseRadius * sin;
+            }
         }
     }
 
@@ -347,38 +421,29 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         drawSpanText(canvas);
     }
 
-    /**
-     * Draws the span summary text in the center of the dial (or top/bottom as configured).
-     * TOP and BOTTOM positions are placed outside the ring with a margin.
-     *
-     * @param canvas The canvas to draw on.
-     */
     private void drawSpanText(Canvas canvas) {
         if (!isSpanTextShown) return;
-        String text = getFormattedSpanText();
+        String[] lines = getCachedSpanTextLines();
+        if (lines == null || lines.length == 0) return;
         float centerX = cx;
 
-        String[] lines = text.split("\n");
         Paint.FontMetrics fm = spanTextPaint.getFontMetrics();
         float lineHeight = fm.descent - fm.ascent;
         float totalBlockHeight = lines.length * lineHeight;
 
         float y;
-        float margin = dp(12); // Margin to avoid overlap with the ring/thumbs
+        float margin = dp(12);
         float outerExtent = viewRadius + Math.max(trackWidth / 2f, thumbRadius);
 
         switch (spanTextPosition) {
             case TOP:
-                // Position above the ring
                 y = cy - outerExtent - margin - (lines.length - 1) * lineHeight - fm.descent;
                 break;
             case BOTTOM:
-                // Position below the ring
                 y = cy + outerExtent + margin - fm.ascent;
                 break;
             case CENTER:
             default:
-                // Position in the exact center of the ring
                 y = cy - (totalBlockHeight / 2f) - fm.ascent;
                 break;
         }
@@ -389,46 +454,33 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         }
     }
 
-    /**
-     * Draws both the start and end thumbs on the circular track.
-     *
-     * @param canvas The canvas to draw on.
-     */
     private void drawThumb(@NonNull Canvas canvas) {
-        drawSingleThumb(canvas, pointForMinutes(currentStartMinutes), startThumbDrawable, startThumbDrawableTintColor);
-        drawSingleThumb(canvas, pointForMinutes(currentEndMinutes), endThumbDrawable, endThumbDrawableTintColor);
+        drawSingleThumb(canvas, currentStartMinutes, startThumbDrawable, startThumbDrawableTintColor);
+        drawSingleThumb(canvas, currentEndMinutes, endThumbDrawable, endThumbDrawableTintColor);
     }
 
-    /**
-     * Draws a single thumb with its shadow, fill, icon, and stroke.
-     *
-     * @param canvas The canvas to draw on.
-     * @param pos    Coordinates on the circle.
-     * @param d      Optional drawable icon.
-     * @param tint   Icon tint color.
-     */
-    private void drawSingleThumb(Canvas canvas, PointF pos, Drawable d, int tint) {
+    private void drawSingleThumb(Canvas canvas, int minutes, Drawable d, int tint) {
+        float angle = minutesToAngle(minutes);
+        double rad = Math.toRadians(angle - 90);
+        float posX = cx + (float) (viewRadius * Math.cos(rad));
+        float posY = cy + (float) (viewRadius * Math.sin(rad));
+
         thumbPaint.setColor(thumbFillColor);
-        if (thumbElevation > 0) canvas.drawCircle(pos.x, pos.y, thumbRadius, thumbShadowPaint);
-        canvas.drawCircle(pos.x, pos.y, thumbRadius, thumbPaint);
+        if (thumbElevation > 0) canvas.drawCircle(posX, posY, thumbRadius, thumbShadowPaint);
+        canvas.drawCircle(posX, posY, thumbRadius, thumbPaint);
         if (d != null) {
             if (tint != Color.TRANSPARENT) DrawableCompat.setTint(d, tint);
             float size = thumbRadius * 1.2f;
-            d.setBounds((int) (pos.x - size / 2f), (int) (pos.y - size / 2f), (int) (pos.x + size / 2f), (int) (pos.y + size / 2f));
+            d.setBounds((int) (posX - size / 2f), (int) (posY - size / 2f), (int) (posX + size / 2f), (int) (posY + size / 2f));
             d.draw(canvas);
         }
         if (thumbStrokeWidth > 0) {
             thumbStrokePaint.setColor(thumbStrokeColor);
             thumbStrokePaint.setStrokeWidth(thumbStrokeWidth);
-            canvas.drawCircle(pos.x, pos.y, thumbRadius - thumbStrokeWidth / 2f, thumbStrokePaint);
+            canvas.drawCircle(posX, posY, thumbRadius - thumbStrokeWidth / 2f, thumbStrokePaint);
         }
     }
 
-    /**
-     * Draws the active span arc between start and end times.
-     *
-     * @param canvas The canvas to draw on.
-     */
     private void drawSpanArc(@NonNull Canvas canvas) {
         float startAngle = minutesToAngle(currentStartMinutes);
         float endAngle = minutesToAngle(currentEndMinutes);
@@ -436,57 +488,33 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         canvas.drawArc(drawingOval, startAngle - 90, sweep, false, spanPaint);
     }
 
-    /**
-     * Draws hour/minute ticks and labels around the dial.
-     *
-     * @param canvas The canvas to draw on.
-     */
     private void drawTicksAndLabels(@NonNull Canvas canvas) {
-        float tickBaseRadius = viewRadius - trackWidth / 2f - tickDistanceFromTrack;
-        Paint.FontMetrics fm = tickLabelPaint.getFontMetrics();
-        float lineHeight = fm.descent - fm.ascent;
+        if (showTicks) {
+            tickPaint.setColor(hourTickColor);
+            tickPaint.setStrokeWidth(hourTickWidth);
+            canvas.drawLines(hourTickLines, tickPaint);
+        }
 
-        for (int h = 0; h < HOURS_IN_DAY; h++) {
-            float angle = h * DEGREES_PER_HOUR;
-            if (showTicks) {
-                PointF p1 = polar(angle, tickBaseRadius - hourTickHeight);
-                PointF p2 = polar(angle, tickBaseRadius);
-                tickPaint.setColor(hourTickColor);
-                tickPaint.setStrokeWidth(hourTickWidth);
-                canvas.drawLine(p1.x, p1.y, p2.x, p2.y, tickPaint);
-            }
-            if (showTickLabels && h % 2 == 0) {
-                String label = formatTickLabel(h);
-                PointF lp = polar(angle, viewRadius - trackWidth / 2f - tickLabelDistanceFromTick);
-
-                String[] lines = label.split("\n");
-                float totalBlockHeight = (lines.length - 1) * lineHeight + (fm.descent - fm.ascent);
-                float y = lp.y - totalBlockHeight / 2f - fm.ascent;
-
-                for (String line : lines) {
-                    canvas.drawText(line, lp.x, y, tickLabelPaint);
+        if (showTickLabels && !cachedTickLabels.isEmpty()) {
+            Paint.FontMetrics fm = tickLabelPaint.getFontMetrics();
+            float lineHeight = fm.descent - fm.ascent;
+            for (int i = 0; i < cachedTickLabels.size(); i++) {
+                CircularLabelItem item = cachedTickLabels.get(i);
+                float y = item.y;
+                for (String line : item.lines) {
+                    canvas.drawText(line, item.x, y, tickLabelPaint);
                     y += lineHeight;
                 }
             }
         }
+
         if (showTicks) {
             tickPaint.setColor(minuteTickColor);
             tickPaint.setStrokeWidth(minuteTickWidth);
-            for (int m = 15; m < TimeUtils.MINUTES_IN_DAY; m += 15) {
-                if (m % 60 == 0) continue;
-                PointF p1 = polar(minutesToAngle(m), tickBaseRadius - minuteTickHeight);
-                PointF p2 = polar(minutesToAngle(m), tickBaseRadius);
-                canvas.drawLine(p1.x, p1.y, p2.x, p2.y, tickPaint);
-            }
+            canvas.drawLines(minuteTickLines, tickPaint);
         }
     }
 
-    /**
-     * Formats an hour value into a tick label string based on 12/24h format.
-     *
-     * @param h Hour (0-23).
-     * @return Formatted label.
-     */
     private String formatTickLabel(int h) {
         if (is24HourFormat) return String.format(Locale.getDefault(), "%02d", h);
         int dh = h % 12;
@@ -512,7 +540,7 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
                         }
                     }
                     if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
-                    updatePosition(minutes);
+                    // Do not jump thumb position on initial touch down
                     playSoundEffect(SoundEffectConstants.CLICK);
                     return true;
                 }
@@ -534,6 +562,7 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
                     notifySpanChanged(true);
                     performClick();
                 }
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
                 return true;
         }
         return super.onTouchEvent(event);
@@ -545,42 +574,40 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         return true;
     }
 
-    /**
-     * Determines which thumb (start or end) is closest to the specified touch coordinates.
-     * Uses Euclidean distance in polar space.
-     *
-     * @param x Touch X coordinate.
-     * @param y Touch Y coordinate.
-     * @return The active thumb or NONE if too far from both.
-     */
     private Thumb getActiveThumb(float x, float y) {
-        PointF ps = pointForMinutes(currentStartMinutes), pe = pointForMinutes(currentEndMinutes);
+        float sAngle = minutesToAngle(currentStartMinutes);
+        double sRad = Math.toRadians(sAngle - 90);
+        float sx = cx + (float) (viewRadius * Math.cos(sRad));
+        float sy = cy + (float) (viewRadius * Math.sin(sRad));
+
+        float eAngle = minutesToAngle(currentEndMinutes);
+        double eRad = Math.toRadians(eAngle - 90);
+        float ex = cx + (float) (viewRadius * Math.cos(eRad));
+        float ey = cy + (float) (viewRadius * Math.sin(eRad));
+
         float r = thumbRadius + thumbTouchRadiusPadding;
-        float d1 = (float) Math.hypot(x - ps.x, y - ps.y), d2 = (float) Math.hypot(x - pe.x, y - pe.y);
+        float d1 = (float) Math.hypot(x - sx, y - sy);
+        float d2 = (float) Math.hypot(x - ex, y - ey);
         if (d1 <= r && d2 <= r) return d1 < d2 ? Thumb.START : Thumb.END;
         if (d1 <= r) return Thumb.START;
         if (d2 <= r) return Thumb.END;
         return Thumb.NONE;
     }
 
-    /**
-     * Updates the position of the active thumb based on the touch angle.
-     *
-     * @param minutes The minute value corresponding to the touch point.
-     */
     private void updatePosition(int minutes) {
         minutes = TimeUtils.snapToStep(minutes, thumbMinuteStep);
+        int prevMinutes = (activeThumb == Thumb.START) ? currentStartMinutes : currentEndMinutes;
         if (activeThumb == Thumb.START) {
             updateSpan(minutes, currentEndMinutes, true);
         } else if (activeThumb == Thumb.END) {
             updateSpan(currentStartMinutes, minutes, false);
         }
-        performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        int newMinutes = (activeThumb == Thumb.START) ? currentStartMinutes : currentEndMinutes;
+        if (prevMinutes != newMinutes) {
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        }
     }
 
-    /**
-     * Announces the currently selected span for accessibility users.
-     */
     private void announceSpan() {
         if (accessibilityManager != null && accessibilityManager.isTouchExplorationEnabled()) {
             String start = TimeUtils.formatDisplayTime(currentStartMinutes, is24HourFormat, getContext().getString(R.string.tss_am), getContext().getString(R.string.tss_pm));
@@ -589,46 +616,19 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         }
     }
 
-    /**
-     * Converts total minutes from midnight into a rotation angle (0-360).
-     */
     private float minutesToAngle(int minutes) {
         return ((float) minutes / TimeUtils.MINUTES_IN_DAY) * DEGREES_IN_CIRCLE;
     }
 
-    /**
-     * Converts a rotation angle (0-360) into total minutes from midnight.
-     */
     private int angleToMinutes(float angle) {
         return (int) (((angle % DEGREES_IN_CIRCLE + DEGREES_IN_CIRCLE) % DEGREES_IN_CIRCLE) / DEGREES_IN_CIRCLE * TimeUtils.MINUTES_IN_DAY);
     }
 
-    /**
-     * Calculates the point on the track corresponding to the given minutes.
-     */
-    private PointF pointForMinutes(int m) {
-        return polar(minutesToAngle(m), viewRadius);
-    }
-
-    /**
-     * Converts polar coordinates (angle, radius) to Cartesian coordinates (x, y).
-     */
-    private PointF polar(float angle, float r) {
-        double rad = Math.toRadians(angle - 90);
-        return new PointF(cx + (float) (r * Math.cos(rad)), cy + (float) (r * Math.sin(rad)));
-    }
-
-    /**
-     * Calculates the rotation angle relative to the center for a given touch point.
-     */
     private float calculateAngleFromPoint(float x, float y) {
         float angle = (float) Math.toDegrees(Math.atan2(y - cy, x - cx)) + 90;
         return angle < 0 ? angle + DEGREES_IN_CIRCLE : angle;
     }
 
-    /**
-     * Calculates the sweep angle (positive) between start and end angles, accounting for overnight wraps.
-     */
     private float calculateSweepAngle(float start, float end) {
         float sweep = end - start;
         return isOvernight() ? (DEGREES_IN_CIRCLE + sweep) : (sweep < 0 ? sweep + DEGREES_IN_CIRCLE : sweep);

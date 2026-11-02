@@ -89,13 +89,11 @@ public class FirstFragment extends Fragment {
     }
 
     private void updateCallbackText(int start, int end, boolean overnight) {
-        String startTime = TimeUtils.formatDisplayTime(start, false, "AM", "PM");
-        String endTime = TimeUtils.formatDisplayTime(end, false, "AM", "PM");
-        int duration = (end >= start) ? (end - start) : (1440 - start + end);
-        
+        TimeSpan span = new TimeSpan(start, end, overnight);
+        String formatted = span.format(false, "AM", "PM", "%1$s - %2$s");
         String text = String.format(Locale.getDefault(), 
-            "Span: %s - %s\nDuration: %d mins | Overnight: %b",
-            startTime, endTime, duration, overnight);
+            "Span: %s\nDuration: %d mins | Overnight: %b",
+            formatted, span.getDurationMinutes(), span.isOvernight());
         
         binding.callbackText.setText(text);
     }

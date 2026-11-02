@@ -20,14 +20,27 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.maven.publish)
     alias(libs.plugins.maven.central.publish)
+    jacoco
 }
 
-// Load secrets
+// Load secrets safely from environment variables, system properties, user home, root secure.properties, or local key path
 val secretProps = Properties()
-val secretPropsFile = file("H:/Key/secure.properties")
-if (secretPropsFile.exists()) {
-    secretPropsFile.inputStream().use { secretProps.load(it) }
+val rootSecretProps = rootProject.file("secure.properties")
+val securePropsCustomPath = System.getenv("SECURE_PROPERTIES_PATH") ?: project.findProperty("securePropertiesPath") as? String
+val customKeyFile = securePropsCustomPath?.let { file(it) }
+val userHomeKeyFile = file("${System.getProperty("user.home")}/.gradle/secure.properties")
+val localKeyFile = file("H:/Key/secure.properties")
+val resolvedKeyFile = when {
+    rootSecretProps.exists() -> rootSecretProps
+    customKeyFile?.exists() == true -> customKeyFile
+    userHomeKeyFile.exists() -> userHomeKeyFile
+    localKeyFile.exists() -> localKeyFile
+    else -> null
 }
+resolvedKeyFile?.inputStream()?.use { secretProps.load(it) }
+
+val gitTssUser: String? = System.getenv("GIT_TSS_USER") ?: secretProps.getProperty("GIT_TSS_USER")
+val gitTssPass: String? = System.getenv("GIT_TSS_PASS") ?: secretProps.getProperty("GIT_TSS_PASS")
 
 val libGroupID = "io.github.ervivekumrao"
 val libArtifactID = "time-span-selector"
@@ -44,6 +57,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            enableUnitTestCoverage = true
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -61,6 +77,12 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            all {
+                it.configure<JacocoTaskExtension> {
+                    isIncludeNoLocationClasses = true
+                    excludes = listOf("jdk.internal.*")
+                }
+            }
         }
     }
 }
@@ -71,8 +93,8 @@ mavenPublishing {
     coordinates(libGroupID, libArtifactID, libVersion)
 
     pom {
-        name.set("Time Span Selector")
-        description.set("A highly customizable Time Span Selector library for Android (Circular and Linear).")
+        name.set("Spanly")
+        description.set("Spanly - A highly customizable, high-performance Time Span Selector library for Android (Circular and Linear).")
         url.set("https://github.com/ervivekumrao/TimeSpanSelectorView")
         licenses {
             license {
@@ -99,13 +121,13 @@ mavenPublishing {
 // The plugin creates a publication named "maven" by default.
 publishing {
     repositories {
-        if (secretProps.containsKey("GIT_TSS_USER")) {
+        if (!gitTssUser.isNullOrBlank() && !gitTssPass.isNullOrBlank()) {
             maven {
                 name = "GitHubPackages"
                 url = uri("https://maven.pkg.github.com/ervivekumrao/TimeSpanSelectorView")
                 credentials {
-                    username = secretProps.getProperty("GIT_TSS_USER")
-                    password = secretProps.getProperty("GIT_TSS_PASS")
+                    username = gitTssUser
+                    password = gitTssPass
                 }
             }
         }
@@ -120,9 +142,28 @@ tasks.register("publishToAll") {
     dependsOn("publishMavenPublicationToGitHubPackagesRepository")
 }
 
+tasks.register<JacocoReport>("jacocoTestReport") {
+    dependsOn("testDebugUnitTest")
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    val fileFilter = listOf(
+        "**/R.class", "**/R$*.class", "**/BuildConfig.*", "**/Manifest*.*"
+    )
+    val debugTree = fileTree("${layout.buildDirectory.get()}/intermediates/javac/debug/compileDebugJavaWithJavac/classes") {
+        exclude(fileFilter)
+    }
+    val mainSrc = "${project.projectDir}/src/main/java"
+    sourceDirectories.setFrom(files(mainSrc))
+    classDirectories.setFrom(files(debugTree))
+    executionData.setFrom(fileTree(layout.buildDirectory.get()) {
+        include("outputs/unit_test_code_coverage/debugUnitTest/testDebugUnitTest.exec")
+    })
+}
+
 dependencies {
     implementation(libs.appcompat)
-    implementation(libs.material)
 
     // Unit Testing
     testImplementation(libs.junit)

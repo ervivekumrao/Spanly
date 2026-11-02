@@ -228,6 +228,25 @@ public interface TimeSpanSelector {
     void setSpanInMinutes(int startMinutes, int endMinutes);
 
     /**
+     * Get the currently selected time span as an immutable domain model.
+     *
+     * @return Current {@link TimeSpan}.
+     */
+    @NonNull
+    default TimeSpan getTimeSpan() {
+        return new TimeSpan(getSpanStartInMinutes(), getSpanEndInMinutes(), isOvernight());
+    }
+
+    /**
+     * Sets the time span using a {@link TimeSpan} model.
+     *
+     * @param timeSpan The time span to set.
+     */
+    default void setTimeSpan(@NonNull TimeSpan timeSpan) {
+        setSpanInMinutes(timeSpan.getStartMinutes(), timeSpan.getEndMinutes());
+    }
+
+    /**
      * Set the start time using a string format (e.g., "HH:mm" or "h:mm a").
      *
      * @param timeString The time string to parse.

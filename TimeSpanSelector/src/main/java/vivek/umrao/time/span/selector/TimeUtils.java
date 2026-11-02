@@ -19,6 +19,8 @@ package vivek.umrao.time.span.selector;
 import androidx.annotation.NonNull;
 
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Utility class for time-related calculations and formatting.
@@ -29,6 +31,9 @@ public class TimeUtils {
      * Total minutes in a single 24-hour day.
      */
     public static final int MINUTES_IN_DAY = 24 * 60;
+
+    private static final Pattern TIME_24H_PATTERN = Pattern.compile("^([01]\\d|2[0-3]):([0-5]\\d)$");
+    private static final Pattern TIME_12H_PATTERN = Pattern.compile("^(0?[1-9]|1[0-2]):([0-5]\\d)\\s*([AaPp][Mm])$");
 
     /**
      * Formats a total number of minutes into a human-readable string.
@@ -56,20 +61,45 @@ public class TimeUtils {
     }
 
     /**
-     * Converts a 24-hour time string ("HH:mm") into total minutes from midnight.
+     * Converts a time string ("HH:mm" or "h:mm a") into total minutes from midnight.
      *
-     * @param timeString The time string to parse (e.g., "09:45").
+     * @param timeString The time string to parse (e.g., "09:45", "14:30", "2:30 PM", "9:45 AM").
      * @return Total minutes (0-1439).
      * @throws IllegalArgumentException If the format is invalid.
      */
     public static int convertTimeToMinutes(@NonNull String timeString) throws IllegalArgumentException {
-        if (!timeString.matches("^([01]\\d|2[0-3]):([0-5]\\d)$")) {
-            throw new IllegalArgumentException("Invalid time format. Expected hh:mm (24h). Received: " + timeString);
+        String trimmed = timeString.trim();
+
+        Matcher matcher24 = TIME_24H_PATTERN.matcher(trimmed);
+        if (matcher24.matches()) {
+            String g1 = matcher24.group(1);
+            String g2 = matcher24.group(2);
+            if (g1 != null && g2 != null) {
+                int hours = Integer.parseInt(g1);
+                int minutes = Integer.parseInt(g2);
+                return hours * 60 + minutes;
+            }
         }
-        String[] parts = timeString.split(":");
-        int hours = Integer.parseInt(parts[0]);
-        int minutes = Integer.parseInt(parts[1]);
-        return hours * 60 + minutes;
+
+        Matcher matcher12 = TIME_12H_PATTERN.matcher(trimmed);
+        if (matcher12.matches()) {
+            String g1 = matcher12.group(1);
+            String g2 = matcher12.group(2);
+            String g3 = matcher12.group(3);
+            if (g1 != null && g2 != null && g3 != null) {
+                int hours = Integer.parseInt(g1);
+                int minutes = Integer.parseInt(g2);
+                String amPm = g3.toUpperCase(Locale.US);
+                if (hours == 12) {
+                    hours = "AM".equals(amPm) ? 0 : 12;
+                } else if ("PM".equals(amPm)) {
+                    hours += 12;
+                }
+                return hours * 60 + minutes;
+            }
+        }
+
+        throw new IllegalArgumentException("Invalid time format. Expected 'HH:mm' (24h) or 'h:mm a' (12h). Received: " + timeString);
     }
 
     /**

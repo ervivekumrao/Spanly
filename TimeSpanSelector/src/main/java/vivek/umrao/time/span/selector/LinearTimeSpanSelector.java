@@ -25,17 +25,22 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
+import android.view.SoundEffectConstants;
+import android.view.accessibility.AccessibilityManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.graphics.drawable.DrawableCompat;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
 
-    private float lastTouchX;
+    private float touchOffset = 0f;
     private final Paint trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint spanPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint thumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -48,6 +53,25 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
     private Thumb activeThumb = Thumb.NONE;
     private float spanTextY;
     private float tickY;
+    private AccessibilityManager accessibilityManager;
+
+    private static class LinearLabelItem {
+        final float x;
+        final float y;
+        final String[] lines;
+
+        LinearLabelItem(float x, float y, String[] lines) {
+            this.x = x;
+            this.y = y;
+            this.lines = lines;
+        }
+    }
+
+    private final List<LinearLabelItem> cachedTickLabels = new ArrayList<>();
+    private final float[] hourTickLines = new float[25 * 4];
+    private int hourTickLineCount = 0;
+    private final float[] minuteTickLines = new float[72 * 4];
+    private int minuteTickLineCount = 0;
 
     public LinearTimeSpanSelector(Context context) {
         this(context, null);
@@ -66,6 +90,7 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
      * Initializes the view with default values and custom attributes.
      */
     private void init(Context context, @Nullable AttributeSet attrs) {
+        accessibilityManager = (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);
         initializeDefaultValues();
         initializeDefaultColors();
         if (attrs != null) {
@@ -74,6 +99,7 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         setupPaints();
         setFocusable(true);
         setClickable(true);
+        setContentDescription(getContext().getString(R.string.tss_content_description_time_span_selector));
     }
 
     /**
@@ -104,7 +130,6 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
     private void initializeFromAttributes(Context context, @NonNull AttributeSet attrs) {
         try (TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.LinearTimeSpanSelector)) {
             thumbMinuteStep = a.getInt(R.styleable.LinearTimeSpanSelector_tss_thumbMinuteStep, DEFAULT_THUMB_MINUTE_STEP);
-            //isOvernightSpanAllowed = a.getBoolean(R.styleable.LinearTimeSpanSelector_tss_allowOvernightSpan, isOvernightSpanAllowed);
 
             currentStartMinutes = getStartTimeFromAttrs(a);
             currentEndMinutes = getEndTimeFromAttrs(a);
@@ -227,11 +252,6 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         spanTextPaint.setTypeface(Typeface.create(Typeface.DEFAULT, spanTextStyle));
     }
 
-    /**
-     * Set the color of the span summary text for the linear selector.
-     *
-     * @param color The text color.
-     */
     @Override
     public void setSpanTextColor(int color) {
         super.setSpanTextColor(color);
@@ -239,15 +259,11 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         invalidate();
     }
 
-    /**
-     * Set the color of the tick labels for the linear selector.
-     *
-     * @param color The label color.
-     */
     @Override
     public void setTickLabelColor(int color) {
         super.setTickLabelColor(color);
         tickLabelPaint.setColor(tickLabelColor);
+        requestLayout();
         invalidate();
     }
 
@@ -259,11 +275,6 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         setMeasuredDimension(resolveSize(desiredWidth, widthMeasureSpec), resolveSize(desiredHeight, heightMeasureSpec));
     }
 
-    /**
-     * Calculates the total height needed for the view based on enabled components (track, ticks, text).
-     *
-     * @return Total height in pixels.
-     */
     private float calculateTotalHeight() {
         float h = Math.max(trackWidth, thumbRadius * 2);
         if (showTicks) h += calculateTickSpaceHeight();
@@ -271,18 +282,13 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         return h;
     }
 
-    /**
-     * Calculates the vertical space occupied by the span summary text.
-     *
-     * @return Text height in pixels.
-     */
     private float calculateSpanTextHeight() {
         if (!isSpanTextShown) return 0;
+        String[] lines = getCachedSpanTextLines();
+        int count = (lines != null) ? lines.length : 1;
         Paint.FontMetrics fm = spanTextPaint.getFontMetrics();
         float lineHeight = fm.descent - fm.ascent;
-        String text = getFormattedSpanText();
-        int lines = text.split("\n").length;
-        return lines * lineHeight;
+        return count * lineHeight;
     }
 
     @Override
@@ -322,6 +328,47 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         if (isSpanTextShown && (spanTextPosition == SpanTextPosition.BOTTOM || spanTextPosition == SpanTextPosition.CENTER)) {
             spanTextY = currentY + margin;
         }
+
+        updateTickGeometry();
+    }
+
+    private void updateTickGeometry() {
+        if (trackRect.width() <= 0) return;
+
+        hourTickLineCount = 0;
+        cachedTickLabels.clear();
+        Paint.FontMetrics fm = tickLabelPaint.getFontMetrics();
+
+        for (int m = 0; m <= MINUTES_IN_DAY; m += 60) {
+            float x = minutesToPosition(m);
+            if (hourTickLineCount + 4 <= hourTickLines.length) {
+                hourTickLines[hourTickLineCount++] = x;
+                hourTickLines[hourTickLineCount++] = tickY;
+                hourTickLines[hourTickLineCount++] = x;
+                hourTickLines[hourTickLineCount++] = tickY + hourTickHeight;
+            }
+
+            if (showTickLabels) {
+                String label = formatTickLabel(m);
+                if (!label.isEmpty()) {
+                    String[] lines = label.split("\n");
+                    float ly = tickY + hourTickHeight + tickLabelDistanceFromTick + dp(4) - fm.ascent;
+                    cachedTickLabels.add(new LinearLabelItem(x, ly, lines));
+                }
+            }
+        }
+
+        minuteTickLineCount = 0;
+        for (int m = 15; m < MINUTES_IN_DAY; m += 15) {
+            if (m % 60 == 0) continue;
+            float x = minutesToPosition(m);
+            if (minuteTickLineCount + 4 <= minuteTickLines.length) {
+                minuteTickLines[minuteTickLineCount++] = x;
+                minuteTickLines[minuteTickLineCount++] = tickY;
+                minuteTickLines[minuteTickLineCount++] = x;
+                minuteTickLines[minuteTickLineCount++] = tickY + minuteTickHeight;
+            }
+        }
     }
 
     private float calculateTickSpaceHeight() {
@@ -350,22 +397,28 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
                             return false;
                         }
                     }
-                    lastTouchX = x;
+                    float thumbCenterX = minutesToPosition(activeThumb == Thumb.START ? currentStartMinutes : currentEndMinutes);
+                    touchOffset = x - thumbCenterX;
                     if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                    playSoundEffect(SoundEffectConstants.CLICK);
                     return true;
                 }
-                break;
+                return false;
             case MotionEvent.ACTION_MOVE:
                 if (activeThumb != Thumb.NONE) {
-                    float dx = x - lastTouchX;
-                    int newMin = positionToMinutes(minutesToPosition(activeThumb == Thumb.START ? currentStartMinutes : currentEndMinutes) + dx);
+                    float thumbTargetX = x - touchOffset;
+                    int newMin = positionToMinutes(thumbTargetX);
                     newMin = TimeUtils.snapToStep(newMin, thumbMinuteStep);
+                    int prevMin = (activeThumb == Thumb.START) ? currentStartMinutes : currentEndMinutes;
                     if (activeThumb == Thumb.START) {
                         updateSpan(newMin, currentEndMinutes, true);
                     } else {
                         updateSpan(currentStartMinutes, newMin, false);
                     }
-                    lastTouchX = x;
+                    int updatedMin = (activeThumb == Thumb.START) ? currentStartMinutes : currentEndMinutes;
+                    if (prevMin != updatedMin) {
+                        performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                    }
                     return true;
                 }
                 break;
@@ -375,28 +428,31 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
                     if (dragChangeListener != null) {
                         dragChangeListener.onDragStop(activeThumb);
                     }
+                    activeThumb = Thumb.NONE;
+                    announceSpan();
                     notifySpanChanged(true);
                     performClick();
                 }
-                activeThumb = Thumb.NONE;
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
                 return true;
         }
         return super.onTouchEvent(event);
     }
 
-    @Override
-    public boolean performClick() {
-        return super.performClick();
+    private void announceSpan() {
+        if (accessibilityManager != null && accessibilityManager.isTouchExplorationEnabled()) {
+            String start = TimeUtils.formatDisplayTime(currentStartMinutes, is24HourFormat, getContext().getString(R.string.tss_am), getContext().getString(R.string.tss_pm));
+            String end = TimeUtils.formatDisplayTime(currentEndMinutes, is24HourFormat, getContext().getString(R.string.tss_am), getContext().getString(R.string.tss_pm));
+            announceForAccessibility(getContext().getString(isOvernight() ? R.string.tss_accessibility_span_overnight_selected : R.string.tss_accessibility_span_selected, start, end));
+        }
     }
 
-    /**
-     * Determines which thumb (start or end) is closest to the specified touch X coordinate.
-     * Uses horizontal distance.
-     *
-     * @param x Touch X coordinate.
-     * @return The active thumb or NONE.
-     */
+    @Override
+    public boolean performClick() {
+        super.performClick();
+        return true;
+    }
+
     private Thumb getActiveThumb(float x) {
         float sX = minutesToPosition(currentStartMinutes);
         float eX = minutesToPosition(currentEndMinutes);
@@ -406,25 +462,22 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         return Thumb.NONE;
     }
 
-    /**
-     * Converts total minutes from midnight into a horizontal pixel position.
-     *
-     * @param minutes Minutes from midnight (0-1440).
-     * @return X coordinate in pixels.
-     */
-    private float minutesToPosition(int minutes) {
-        return trackRect.left + ((float) minutes / MINUTES_IN_DAY) * trackRect.width();
+    private boolean isRtl() {
+        return getLayoutDirection() == LAYOUT_DIRECTION_RTL;
     }
 
-    /**
-     * Converts a horizontal pixel position into total minutes from midnight.
-     *
-     * @param pos X coordinate in pixels.
-     * @return Minutes from midnight (0-1440).
-     */
+    private float minutesToPosition(int minutes) {
+        if (isRtl()) {
+            return trackRect.right - ((float) minutes / MINUTES_IN_DAY) * trackRect.width();
+        } else {
+            return trackRect.left + ((float) minutes / MINUTES_IN_DAY) * trackRect.width();
+        }
+    }
+
     private int positionToMinutes(float pos) {
-        float rel = pos - trackRect.left;
-        return Math.max(0, Math.min(Math.round((rel / trackRect.width()) * MINUTES_IN_DAY), MINUTES_IN_DAY));
+        if (trackRect.width() <= 0) return 0;
+        float fraction = isRtl() ? (trackRect.right - pos) / trackRect.width() : (pos - trackRect.left) / trackRect.width();
+        return Math.max(0, Math.min(Math.round(fraction * MINUTES_IN_DAY), MINUTES_IN_DAY));
     }
 
     @Override
@@ -439,7 +492,14 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         float sX = minutesToPosition(currentStartMinutes);
         float eX = minutesToPosition(currentEndMinutes);
         spanPaint.setColor(spanColor);
-        canvas.drawRect(sX, trackRect.top, eX, trackRect.bottom, spanPaint);
+        if (isOvernight()) {
+            float x24 = minutesToPosition(MINUTES_IN_DAY);
+            float x0 = minutesToPosition(0);
+            canvas.drawRect(Math.min(sX, x24), trackRect.top, Math.max(sX, x24), trackRect.bottom, spanPaint);
+            canvas.drawRect(Math.min(x0, eX), trackRect.top, Math.max(x0, eX), trackRect.bottom, spanPaint);
+        } else {
+            canvas.drawRect(Math.min(sX, eX), trackRect.top, Math.max(sX, eX), trackRect.bottom, spanPaint);
+        }
         drawSingleThumb(canvas, sX, trackRect.centerY(), startThumbDrawable, startThumbDrawableTintColor);
         drawSingleThumb(canvas, eX, trackRect.centerY(), endThumbDrawable, endThumbDrawableTintColor);
         if (isSpanTextShown && (spanTextPosition == SpanTextPosition.BOTTOM || spanTextPosition == SpanTextPosition.CENTER)) {
@@ -447,15 +507,9 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         }
     }
 
-    /**
-     * Draws the span summary text at the specified Y position.
-     *
-     * @param canvas The canvas to draw on.
-     * @param y      The vertical baseline for the first line.
-     */
     private void drawSpanText(Canvas canvas, float y) {
-        String text = getFormattedSpanText();
-        String[] lines = text.split("\n");
+        String[] lines = getCachedSpanTextLines();
+        if (lines == null || lines.length == 0) return;
         Paint.FontMetrics fm = spanTextPaint.getFontMetrics();
         float lineHeight = fm.descent - fm.ascent;
         float curY = y - fm.ascent;
@@ -465,15 +519,6 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         }
     }
 
-    /**
-     * Draws a single thumb with its fill, icon, and stroke.
-     *
-     * @param canvas The canvas to draw on.
-     * @param x      Horizontal center.
-     * @param y      Vertical center.
-     * @param d      Optional drawable icon.
-     * @param tint   Icon tint color.
-     */
     private void drawSingleThumb(Canvas canvas, float x, float y, Drawable d, int tint) {
         thumbPaint.setColor(thumbFillColor);
         canvas.drawCircle(x, y, thumbRadius, thumbPaint);
@@ -490,48 +535,34 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         }
     }
 
-    /**
-     * Draws hour and minute tick marks along the linear track.
-     *
-     * @param canvas The canvas to draw on.
-     */
     private void drawTicks(Canvas canvas) {
-        float y = tickY;
+        if (!showTicks) return;
         tickPaint.setColor(hourTickColor);
         tickPaint.setStrokeWidth(hourTickWidth);
-        Paint.FontMetrics fm = tickLabelPaint.getFontMetrics();
-        float lineHeight = fm.descent - fm.ascent;
+        if (hourTickLineCount > 0) {
+            canvas.drawLines(hourTickLines, 0, hourTickLineCount, tickPaint);
+        }
 
-        for (int m = 0; m <= MINUTES_IN_DAY; m += 60) {
-            float x = minutesToPosition(m);
-            canvas.drawLine(x, y, x, y + hourTickHeight, tickPaint);
-            if (showTickLabels) {
-                String label = formatTickLabel(m);
-                if (!label.isEmpty()) {
-                    String[] lines = label.split("\n");
-                    float ly = y + hourTickHeight + tickLabelDistanceFromTick + dp(4) - fm.ascent;
-                    for (String line : lines) {
-                        canvas.drawText(line, x, ly, tickLabelPaint);
-                        ly += lineHeight;
-                    }
+        if (showTickLabels && !cachedTickLabels.isEmpty()) {
+            Paint.FontMetrics fm = tickLabelPaint.getFontMetrics();
+            float lineHeight = fm.descent - fm.ascent;
+            for (int i = 0; i < cachedTickLabels.size(); i++) {
+                LinearLabelItem item = cachedTickLabels.get(i);
+                float ly = item.y;
+                for (String line : item.lines) {
+                    canvas.drawText(line, item.x, ly, tickLabelPaint);
+                    ly += lineHeight;
                 }
             }
         }
+
         tickPaint.setColor(minuteTickColor);
         tickPaint.setStrokeWidth(minuteTickWidth);
-        for (int m = 15; m < MINUTES_IN_DAY; m += 15) {
-            if (m % 60 == 0) continue;
-            float x = minutesToPosition(m);
-            canvas.drawLine(x, y, x, y + minuteTickHeight, tickPaint);
+        if (minuteTickLineCount > 0) {
+            canvas.drawLines(minuteTickLines, 0, minuteTickLineCount, tickPaint);
         }
     }
 
-    /**
-     * Formats a minute value into a tick label string for the linear slider.
-     *
-     * @param minutes Minutes from midnight (0-1440).
-     * @return Formatted label.
-     */
     private String formatTickLabel(int minutes) {
         int h = (minutes / 60) % 24;
         if (h % 2 != 0) return "";

@@ -31,8 +31,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 
-import com.google.android.material.color.MaterialColors;
-
 /**
  * Base class for time span selectors containing shared logic and attributes.
  */
@@ -41,6 +39,20 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
     private static final String KEY_SUPER_STATE = "super_state";
     private static final String KEY_START_MINUTES = "start_minutes";
     private static final String KEY_END_MINUTES = "end_minutes";
+    private static final String KEY_MIN_DURATION = "min_duration";
+    private static final String KEY_MAX_DURATION = "max_duration";
+    private static final String KEY_THUMB_STEP = "thumb_step";
+    private static final String KEY_IS_24_HOUR = "is_24_hour";
+    private static final String KEY_ALLOW_OVERNIGHT = "allow_overnight";
+    private static final String KEY_SHOW_TICKS = "show_ticks";
+    private static final String KEY_SHOW_TICK_LABELS = "show_tick_labels";
+    private static final String KEY_SHOW_AM_PM_LABELS = "show_am_pm_labels";
+    private static final String KEY_SHOW_SPAN_TEXT = "show_span_text";
+    private static final String KEY_SPAN_TEXT_FORMAT = "span_text_format";
+    private static final String KEY_SPAN_TEXT_POSITION = "span_text_position";
+
+    @Nullable
+    protected String[] cachedSpanTextLines;
 
     protected OnSpanChangeListener spanChangeListener;
     protected OnTimeChangeListener timeChangeListener;
@@ -111,11 +123,11 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
     protected Drawable endThumbDrawable;
 
     public BaseTimeSpanSelector(Context context) {
-        super(context);
+        this(context, null);
     }
 
     public BaseTimeSpanSelector(Context context, @Nullable AttributeSet attrs) {
-        super(context, attrs);
+        this(context, attrs, 0);
     }
 
     public BaseTimeSpanSelector(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
@@ -123,20 +135,61 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
     }
 
     /**
+     * Resolves a color attribute from the current theme, falling back to a default value if not resolved.
+     */
+    protected int resolveThemeColor(int attr, int defaultColor) {
+        TypedValue tv = new TypedValue();
+        if (getContext().getTheme().resolveAttribute(attr, tv, true)) {
+            if (tv.type >= TypedValue.TYPE_FIRST_COLOR_INT && tv.type <= TypedValue.TYPE_LAST_COLOR_INT) {
+                return tv.data;
+            } else if (tv.resourceId != 0) {
+                try {
+                    return ContextCompat.getColor(getContext(), tv.resourceId);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return defaultColor;
+    }
+
+    /**
      * Initializes default colors from resources and theme.
      */
     protected void initializeDefaultColors() {
-        trackColor = MaterialColors.getColor(this, android.R.attr.textColorSecondaryNoDisable, DEFAULT_TRACK_COLOR);
-        spanColor = MaterialColors.getColor(this, android.R.attr.colorPrimary, DEFAULT_SPAN_COLOR);
-        spanTextColor = MaterialColors.getColor(this, android.R.attr.textColorPrimary, DEFAULT_SPAN_TEXT_COLOR);
-        thumbFillColor = MaterialColors.getColor(this, android.R.attr.colorPrimary, DEFAULT_THUMB_FILL_COLOR);
-        thumbStrokeColor = MaterialColors.getColor(this, android.R.attr.strokeColor, DEFAULT_THUMB_STROKE_COLOR);
-        thumbShadowColor = MaterialColors.getColor(this, android.R.attr.shadowColor, DEFAULT_THUMB_SHADOW_COLOR);
-        startThumbDrawableTintColor = MaterialColors.getColor(this, android.R.attr.thumbTint, DEFAULT_THUMB_DRAWABLE_TINT_COLOR);
-        endThumbDrawableTintColor = MaterialColors.getColor(this, android.R.attr.thumbTint, DEFAULT_THUMB_DRAWABLE_TINT_COLOR);
-        hourTickColor = MaterialColors.getColor(this, android.R.attr.textColorPrimary, DEFAULT_TICK_COLOR);
-        minuteTickColor = MaterialColors.getColor(this, android.R.attr.textColorPrimary, DEFAULT_TICK_COLOR);
-        tickLabelColor = MaterialColors.getColor(this, android.R.attr.textColorPrimary, DEFAULT_TICK_LABEL_COLOR);
+        trackColor = resolveThemeColor(android.R.attr.textColorSecondaryNoDisable, DEFAULT_TRACK_COLOR);
+        spanColor = resolveThemeColor(android.R.attr.colorPrimary, DEFAULT_SPAN_COLOR);
+        spanTextColor = resolveThemeColor(android.R.attr.textColorPrimary, DEFAULT_SPAN_TEXT_COLOR);
+        thumbFillColor = resolveThemeColor(android.R.attr.colorPrimary, DEFAULT_THUMB_FILL_COLOR);
+        thumbStrokeColor = resolveThemeColor(android.R.attr.strokeColor, DEFAULT_THUMB_STROKE_COLOR);
+        thumbShadowColor = resolveThemeColor(android.R.attr.shadowColor, DEFAULT_THUMB_SHADOW_COLOR);
+        startThumbDrawableTintColor = resolveThemeColor(android.R.attr.thumbTint, DEFAULT_THUMB_DRAWABLE_TINT_COLOR);
+        endThumbDrawableTintColor = resolveThemeColor(android.R.attr.thumbTint, DEFAULT_THUMB_DRAWABLE_TINT_COLOR);
+        hourTickColor = resolveThemeColor(android.R.attr.textColorPrimary, DEFAULT_TICK_COLOR);
+        minuteTickColor = resolveThemeColor(android.R.attr.textColorPrimary, DEFAULT_TICK_COLOR);
+        tickLabelColor = resolveThemeColor(android.R.attr.textColorPrimary, DEFAULT_TICK_LABEL_COLOR);
+    }
+
+    /**
+     * Updates and caches the formatted text lines to avoid allocations in onDraw.
+     */
+    public void updateCachedSpanText() {
+        if (!isSpanTextShown) {
+            cachedSpanTextLines = null;
+            return;
+        }
+        String text = getFormattedSpanText();
+        cachedSpanTextLines = text.split("\n");
+    }
+
+    /**
+     * Retrieves the cached span text lines, initializing them if needed.
+     */
+    @Nullable
+    public String[] getCachedSpanTextLines() {
+        if (cachedSpanTextLines == null && isSpanTextShown) {
+            updateCachedSpanText();
+        }
+        return cachedSpanTextLines;
     }
 
     /**
@@ -284,28 +337,51 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
         newStart = (newStart % MINUTES_IN_DAY + MINUTES_IN_DAY) % MINUTES_IN_DAY;
         newEnd = (newEnd % MINUTES_IN_DAY + MINUTES_IN_DAY) % MINUTES_IN_DAY;
 
-        int duration = calculateDuration(newStart, newEnd);
-
-        if (!isOvernightSpanAllowed && newEnd < newStart) {
-            if (movingStart) {
-                newStart = newEnd;
-            } else {
-                newEnd = newStart;
+        if (!isOvernightSpanAllowed) {
+            // Prevent overnight wrap when overnight spans are not permitted
+            if (newEnd < newStart) {
+                if (movingStart) {
+                    newStart = newEnd;
+                } else {
+                    newEnd = newStart;
+                }
             }
-            duration = 0;
-        }
 
-        if (duration < minDurationMinutes) {
-            if (movingStart) {
-                newStart = (newEnd - minDurationMinutes + MINUTES_IN_DAY) % MINUTES_IN_DAY;
-            } else {
-                newEnd = (newStart + minDurationMinutes) % MINUTES_IN_DAY;
+            int duration = newEnd - newStart;
+            if (duration < minDurationMinutes) {
+                if (movingStart) {
+                    newStart = Math.max(0, newEnd - minDurationMinutes);
+                    if (newEnd - newStart < minDurationMinutes) {
+                        newEnd = Math.min(MINUTES_IN_DAY, newStart + minDurationMinutes);
+                    }
+                } else {
+                    newEnd = Math.min(MINUTES_IN_DAY, newStart + minDurationMinutes);
+                    if (newEnd - newStart < minDurationMinutes) {
+                        newStart = Math.max(0, newEnd - minDurationMinutes);
+                    }
+                }
+            } else if (duration > maxDurationMinutes) {
+                if (movingStart) {
+                    newStart = newEnd - maxDurationMinutes;
+                } else {
+                    newEnd = newStart + maxDurationMinutes;
+                }
             }
-        } else if (duration > maxDurationMinutes) {
-            if (movingStart) {
-                newStart = (newEnd - maxDurationMinutes + MINUTES_IN_DAY) % MINUTES_IN_DAY;
-            } else {
-                newEnd = (newStart + maxDurationMinutes) % MINUTES_IN_DAY;
+        } else {
+            int duration = calculateDuration(newStart, newEnd);
+
+            if (duration < minDurationMinutes) {
+                if (movingStart) {
+                    newStart = (newEnd - minDurationMinutes + MINUTES_IN_DAY) % MINUTES_IN_DAY;
+                } else {
+                    newEnd = (newStart + minDurationMinutes) % MINUTES_IN_DAY;
+                }
+            } else if (duration > maxDurationMinutes) {
+                if (movingStart) {
+                    newStart = (newEnd - maxDurationMinutes + MINUTES_IN_DAY) % MINUTES_IN_DAY;
+                } else {
+                    newEnd = (newStart + maxDurationMinutes) % MINUTES_IN_DAY;
+                }
             }
         }
 
@@ -316,6 +392,7 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
 
             this.currentStartMinutes = newStart;
             this.currentEndMinutes = newEnd;
+            updateCachedSpanText();
             invalidate();
             notifySpanChanged(false);
 
@@ -561,6 +638,7 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
     @Override
     public void showSpanText(boolean showSpanText) {
         this.isSpanTextShown = showSpanText;
+        updateCachedSpanText();
         requestLayout();
         invalidate();
     }
@@ -639,6 +717,7 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
     @Override
     public void setSpanTextFormat(String format) {
         this.spanTextFormat = format != null ? format : DEFAULT_SPAN_TEXT_FORMAT;
+        updateCachedSpanText();
         invalidate();
     }
 
@@ -1465,6 +1544,7 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
     @Override
     public void set24HourFormat(boolean is24HourFormat) {
         this.is24HourFormat = is24HourFormat;
+        updateCachedSpanText();
         requestLayout();
         invalidate();
     }
@@ -1504,6 +1584,17 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
         bundle.putParcelable(KEY_SUPER_STATE, super.onSaveInstanceState());
         bundle.putInt(KEY_START_MINUTES, currentStartMinutes);
         bundle.putInt(KEY_END_MINUTES, currentEndMinutes);
+        bundle.putInt(KEY_MIN_DURATION, minDurationMinutes);
+        bundle.putInt(KEY_MAX_DURATION, maxDurationMinutes);
+        bundle.putInt(KEY_THUMB_STEP, thumbMinuteStep);
+        bundle.putBoolean(KEY_IS_24_HOUR, is24HourFormat);
+        bundle.putBoolean(KEY_ALLOW_OVERNIGHT, isOvernightSpanAllowed);
+        bundle.putBoolean(KEY_SHOW_TICKS, showTicks);
+        bundle.putBoolean(KEY_SHOW_TICK_LABELS, showTickLabels);
+        bundle.putBoolean(KEY_SHOW_AM_PM_LABELS, showAmPmLabels);
+        bundle.putBoolean(KEY_SHOW_SPAN_TEXT, isSpanTextShown);
+        bundle.putString(KEY_SPAN_TEXT_FORMAT, spanTextFormat);
+        bundle.putString(KEY_SPAN_TEXT_POSITION, spanTextPosition.name());
         return bundle;
     }
 
@@ -1511,9 +1602,29 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
     protected void onRestoreInstanceState(Parcelable state) {
         if (state instanceof Bundle) {
             Bundle bundle = (Bundle) state;
-            currentStartMinutes = bundle.getInt(KEY_START_MINUTES);
-            currentEndMinutes = bundle.getInt(KEY_END_MINUTES);
+            currentStartMinutes = bundle.getInt(KEY_START_MINUTES, DEFAULT_START_MINUTES);
+            currentEndMinutes = bundle.getInt(KEY_END_MINUTES, DEFAULT_END_MINUTES);
+            minDurationMinutes = bundle.getInt(KEY_MIN_DURATION, minDurationMinutes);
+            maxDurationMinutes = bundle.getInt(KEY_MAX_DURATION, maxDurationMinutes);
+            thumbMinuteStep = bundle.getInt(KEY_THUMB_STEP, thumbMinuteStep);
+            is24HourFormat = bundle.getBoolean(KEY_IS_24_HOUR, is24HourFormat);
+            isOvernightSpanAllowed = bundle.getBoolean(KEY_ALLOW_OVERNIGHT, isOvernightSpanAllowed);
+            showTicks = bundle.getBoolean(KEY_SHOW_TICKS, showTicks);
+            showTickLabels = bundle.getBoolean(KEY_SHOW_TICK_LABELS, showTickLabels);
+            showAmPmLabels = bundle.getBoolean(KEY_SHOW_AM_PM_LABELS, showAmPmLabels);
+            isSpanTextShown = bundle.getBoolean(KEY_SHOW_SPAN_TEXT, isSpanTextShown);
+            spanTextFormat = bundle.getString(KEY_SPAN_TEXT_FORMAT, spanTextFormat);
+            String posName = bundle.getString(KEY_SPAN_TEXT_POSITION);
+            if (posName != null) {
+                try {
+                    spanTextPosition = SpanTextPosition.valueOf(posName);
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+            updateCachedSpanText();
             super.onRestoreInstanceState(bundle.getParcelable(KEY_SUPER_STATE));
+            invalidate();
+            requestLayout();
         } else {
             super.onRestoreInstanceState(state);
         }

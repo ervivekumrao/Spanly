@@ -51,6 +51,13 @@ public class TimeUtilsTest {
         assertEquals(0, TimeUtils.convertTimeToMinutes("00:00"));
         assertEquals(1439, TimeUtils.convertTimeToMinutes("23:59"));
         assertEquals(720, TimeUtils.convertTimeToMinutes("12:00"));
+
+        // 12-hour format support
+        assertEquals(570, TimeUtils.convertTimeToMinutes("9:30 AM"));
+        assertEquals(570, TimeUtils.convertTimeToMinutes("09:30 AM"));
+        assertEquals(1305, TimeUtils.convertTimeToMinutes("9:45 PM"));
+        assertEquals(0, TimeUtils.convertTimeToMinutes("12:00 AM"));
+        assertEquals(720, TimeUtils.convertTimeToMinutes("12:00 PM"));
     }
 
     @Test

@@ -63,6 +63,8 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
 
     private Thumb activeThumb = Thumb.NONE;
     private int lastSpanDragMinutes = 0;
+    private boolean isThumbAmbiguous = false;
+    private float downTouchAngle = 0f;
     private AccessibilityManager accessibilityManager;
 
     private static class CircularLabelItem {
@@ -567,9 +569,30 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
             case MotionEvent.ACTION_DOWN:
                 activeThumb = getActiveThumb(x, y);
                 if (activeThumb != Thumb.NONE) {
+                    float sAngle = minutesToAngle(currentStartMinutes);
+                    double sRad = Math.toRadians(sAngle - 90);
+                    float sx = cx + (float) (viewRadius * Math.cos(sRad));
+                    float sy = cy + (float) (viewRadius * Math.sin(sRad));
+
+                    float eAngle = minutesToAngle(currentEndMinutes);
+                    double eRad = Math.toRadians(eAngle - 90);
+                    float ex = cx + (float) (viewRadius * Math.cos(eRad));
+                    float ey = cy + (float) (viewRadius * Math.sin(eRad));
+
+                    float r = thumbRadius + thumbTouchRadiusPadding;
+                    float d1 = (float) Math.hypot(x - sx, y - sy);
+                    float d2 = (float) Math.hypot(x - ex, y - ey);
+                    if (d1 <= r && d2 <= r) {
+                        isThumbAmbiguous = true;
+                        downTouchAngle = calculateAngleFromPoint(x, y);
+                    } else {
+                        isThumbAmbiguous = false;
+                    }
+
                     if (dragChangeListener != null) {
                         if (!dragChangeListener.onDragStart(activeThumb)) {
                             activeThumb = Thumb.NONE;
+                            isThumbAmbiguous = false;
                             return false;
                         }
                     }
@@ -593,12 +616,34 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
                     }
                     return true;
                 } else if (activeThumb != Thumb.NONE) {
+                    if (isThumbAmbiguous) {
+                        float currentAngle = calculateAngleFromPoint(x, y);
+                        float deltaAngle = currentAngle - downTouchAngle;
+                        if (deltaAngle > 180f) deltaAngle -= 360f;
+                        else if (deltaAngle < -180f) deltaAngle += 360f;
+
+                        if (Math.abs(deltaAngle) >= 2f) {
+                            boolean draggingForward = deltaAngle > 0;
+                            Thumb targetThumb = draggingForward ? Thumb.END : Thumb.START;
+                            if (targetThumb != activeThumb) {
+                                if (dragChangeListener != null) {
+                                    dragChangeListener.onDragStop(activeThumb);
+                                    dragChangeListener.onDragStart(targetThumb);
+                                }
+                                activeThumb = targetThumb;
+                            }
+                            isThumbAmbiguous = false;
+                        } else {
+                            return true;
+                        }
+                    }
                     updatePosition(minutes);
                     return true;
                 }
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                isThumbAmbiguous = false;
                 if (activeThumb != Thumb.NONE) {
                     if (dragChangeListener != null) {
                         dragChangeListener.onDragStop(activeThumb);
@@ -656,9 +701,29 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         minutes = TimeUtils.snapToStep(minutes, thumbMinuteStep);
         int prevMinutes = (activeThumb == Thumb.START) ? currentStartMinutes : currentEndMinutes;
         if (activeThumb == Thumb.START) {
-            updateSpan(minutes, currentEndMinutes, true);
+            if (!isOvernightSpanAllowed && minutes > currentEndMinutes) {
+                int oldEnd = currentEndMinutes;
+                updateSpan(oldEnd, minutes, false);
+                activeThumb = Thumb.END;
+                if (dragChangeListener != null) {
+                    dragChangeListener.onDragStop(Thumb.START);
+                    dragChangeListener.onDragStart(Thumb.END);
+                }
+            } else {
+                updateSpan(minutes, currentEndMinutes, true);
+            }
         } else if (activeThumb == Thumb.END) {
-            updateSpan(currentStartMinutes, minutes, false);
+            if (!isOvernightSpanAllowed && minutes < currentStartMinutes) {
+                int oldStart = currentStartMinutes;
+                updateSpan(minutes, oldStart, true);
+                activeThumb = Thumb.START;
+                if (dragChangeListener != null) {
+                    dragChangeListener.onDragStop(Thumb.END);
+                    dragChangeListener.onDragStart(Thumb.START);
+                }
+            } else {
+                updateSpan(currentStartMinutes, minutes, false);
+            }
         }
         int newMinutes = (activeThumb == Thumb.START) ? currentStartMinutes : currentEndMinutes;
         if (prevMinutes != newMinutes) {

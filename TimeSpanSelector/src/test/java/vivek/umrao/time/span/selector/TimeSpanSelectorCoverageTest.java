@@ -619,4 +619,80 @@ public class TimeSpanSelectorCoverageTest {
         movePastEnd.recycle();
         upCrossover.recycle();
     }
+
+    @Test
+    public void testCircularOverlappingThumbsMovement() {
+        CircularTimeSpanSelector selector = new CircularTimeSpanSelector(context);
+        selector.setThumbMinuteStep(1);
+        selector.setOvernightSpanAllowed(false);
+        // Overlapping at 6 o'clock (720 minutes = 12:00 PM)
+        selector.setSpanInMinutes(720, 720);
+        assertEquals(720, selector.getSpanStartInMinutes());
+        assertEquals(720, selector.getSpanEndInMinutes());
+
+        selector.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
+                         View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY));
+        selector.layout(0, 0, 1000, 1000);
+
+        // 6 o'clock is at (500, 975)
+        float thumbX = 500f;
+        float thumbY = 975f;
+
+        // 1. Dragging clockwise (towards 7-8-9 o'clock) should expand END thumb
+        MotionEvent down1 = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, thumbX, thumbY, 0);
+        assertTrue(selector.onTouchEvent(down1));
+
+        MotionEvent moveClockwise = MotionEvent.obtain(0, 50, MotionEvent.ACTION_MOVE, 300f, 950f, 0);
+        assertTrue(selector.onTouchEvent(moveClockwise));
+
+        MotionEvent up1 = MotionEvent.obtain(0, 100, MotionEvent.ACTION_UP, 300f, 950f, 0);
+        assertTrue(selector.onTouchEvent(up1));
+
+        assertEquals(720, selector.getSpanStartInMinutes());
+        assertTrue("End thumb must move clockwise when dragging clockwise from overlap", selector.getSpanEndInMinutes() > 720);
+
+        down1.recycle();
+        moveClockwise.recycle();
+        up1.recycle();
+
+        // 2. Dragging counter-clockwise (towards 5-4-3 o'clock) should expand START thumb
+        selector.setSpanInMinutes(720, 720);
+        MotionEvent down2 = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, thumbX, thumbY, 0);
+        assertTrue(selector.onTouchEvent(down2));
+
+        MotionEvent moveCounterClockwise = MotionEvent.obtain(0, 50, MotionEvent.ACTION_MOVE, 700f, 950f, 0);
+        assertTrue(selector.onTouchEvent(moveCounterClockwise));
+
+        MotionEvent up2 = MotionEvent.obtain(0, 100, MotionEvent.ACTION_UP, 700f, 950f, 0);
+        assertTrue(selector.onTouchEvent(up2));
+
+        assertEquals(720, selector.getSpanEndInMinutes());
+        assertTrue("Start thumb must move counter-clockwise when dragging counter-clockwise from overlap", selector.getSpanStartInMinutes() < 720);
+
+        down2.recycle();
+        moveCounterClockwise.recycle();
+        up2.recycle();
+
+        // 3. Test crossover: when overnight is disallowed, dragging START clockwise past END swaps thumbs seamlessly
+        selector.setSpanInMinutes(600, 720);
+        float startAngleRad = (float) Math.toRadians(150 - 90);
+        float sX = 500f + (float) (475f * Math.cos(startAngleRad));
+        float sY = 500f + (float) (475f * Math.sin(startAngleRad));
+
+        MotionEvent downStart = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, sX, sY, 0);
+        assertTrue(selector.onTouchEvent(downStart));
+
+        MotionEvent movePastEnd = MotionEvent.obtain(0, 50, MotionEvent.ACTION_MOVE, 262.5f, 911f, 0);
+        assertTrue(selector.onTouchEvent(movePastEnd));
+
+        MotionEvent upCrossover = MotionEvent.obtain(0, 100, MotionEvent.ACTION_UP, 262.5f, 911f, 0);
+        assertTrue(selector.onTouchEvent(upCrossover));
+
+        assertEquals("Old end becomes new start upon crossover", 720, selector.getSpanStartInMinutes());
+        assertTrue("Dragged thumb becomes new end", selector.getSpanEndInMinutes() > 720);
+
+        downStart.recycle();
+        movePastEnd.recycle();
+        upCrossover.recycle();
+    }
 }

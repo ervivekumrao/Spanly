@@ -55,6 +55,8 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
     private final RectF trackRect = new RectF();
     private Thumb activeThumb = Thumb.NONE;
     private int lastSpanDragMinutes = 0;
+    private boolean isThumbAmbiguous = false;
+    private float downTouchX = 0f;
     private float spanTextY;
     private float tickY;
     private AccessibilityManager accessibilityManager;
@@ -397,9 +399,20 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
             case MotionEvent.ACTION_DOWN:
                 activeThumb = getActiveThumb(x, y);
                 if (activeThumb != Thumb.NONE) {
+                    float sX = minutesToPosition(currentStartMinutes);
+                    float eX = minutesToPosition(currentEndMinutes);
+                    float touchR = thumbRadius + thumbTouchRadiusPadding;
+                    if (Math.abs(x - sX) <= touchR && Math.abs(x - eX) <= touchR) {
+                        isThumbAmbiguous = true;
+                        downTouchX = x;
+                    } else {
+                        isThumbAmbiguous = false;
+                    }
+
                     if (dragChangeListener != null) {
                         if (!dragChangeListener.onDragStart(activeThumb)) {
                             activeThumb = Thumb.NONE;
+                            isThumbAmbiguous = false;
                             return false;
                         }
                     }
@@ -426,15 +439,59 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
                     }
                     return true;
                 } else if (activeThumb != Thumb.NONE) {
+                    if (isThumbAmbiguous) {
+                        float dx = x - downTouchX;
+                        if (Math.abs(dx) >= dp(1.5f)) {
+                            boolean draggingForward = isRtl() ? (dx < 0) : (dx > 0);
+                            Thumb targetThumb = draggingForward ? Thumb.END : Thumb.START;
+                            if (targetThumb != activeThumb) {
+                                if (dragChangeListener != null) {
+                                    dragChangeListener.onDragStop(activeThumb);
+                                    dragChangeListener.onDragStart(targetThumb);
+                                }
+                                activeThumb = targetThumb;
+                            }
+                            float thumbCenterX = minutesToPosition(activeThumb == Thumb.START ? currentStartMinutes : currentEndMinutes);
+                            touchOffset = downTouchX - thumbCenterX;
+                            isThumbAmbiguous = false;
+                        } else {
+                            return true;
+                        }
+                    }
+
                     float thumbTargetX = x - touchOffset;
                     int newMin = positionToMinutes(thumbTargetX);
                     newMin = TimeUtils.snapToStep(newMin, thumbMinuteStep);
                     int prevMin = (activeThumb == Thumb.START) ? currentStartMinutes : currentEndMinutes;
+
                     if (activeThumb == Thumb.START) {
-                        updateSpan(newMin, currentEndMinutes, true);
-                    } else {
-                        updateSpan(currentStartMinutes, newMin, false);
+                        if (!isOvernight() && newMin > currentEndMinutes) {
+                            int oldEnd = currentEndMinutes;
+                            updateSpan(oldEnd, newMin, false);
+                            activeThumb = Thumb.END;
+                            touchOffset = x - minutesToPosition(newMin);
+                            if (dragChangeListener != null) {
+                                dragChangeListener.onDragStop(Thumb.START);
+                                dragChangeListener.onDragStart(Thumb.END);
+                            }
+                        } else {
+                            updateSpan(newMin, currentEndMinutes, true);
+                        }
+                    } else if (activeThumb == Thumb.END) {
+                        if (!isOvernight() && newMin < currentStartMinutes) {
+                            int oldStart = currentStartMinutes;
+                            updateSpan(newMin, oldStart, true);
+                            activeThumb = Thumb.START;
+                            touchOffset = x - minutesToPosition(newMin);
+                            if (dragChangeListener != null) {
+                                dragChangeListener.onDragStop(Thumb.END);
+                                dragChangeListener.onDragStart(Thumb.START);
+                            }
+                        } else {
+                            updateSpan(currentStartMinutes, newMin, false);
+                        }
                     }
+
                     int updatedMin = (activeThumb == Thumb.START) ? currentStartMinutes : currentEndMinutes;
                     if (prevMin != updatedMin) {
                         performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
@@ -444,6 +501,7 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                isThumbAmbiguous = false;
                 if (activeThumb != Thumb.NONE) {
                     if (dragChangeListener != null) {
                         dragChangeListener.onDragStop(activeThumb);
@@ -477,8 +535,15 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         float sX = minutesToPosition(currentStartMinutes);
         float eX = minutesToPosition(currentEndMinutes);
         float touchR = thumbRadius + thumbTouchRadiusPadding;
-        if (Math.abs(x - sX) <= touchR && Math.abs(x - sX) <= Math.abs(x - eX)) return Thumb.START;
-        if (Math.abs(x - eX) <= touchR) return Thumb.END;
+        float dStart = Math.abs(x - sX);
+        float dEnd = Math.abs(x - eX);
+
+        if (dStart <= touchR || dEnd <= touchR) {
+            if (dStart <= touchR && dEnd <= touchR) {
+                return dStart < dEnd ? Thumb.START : Thumb.END;
+            }
+            return dStart <= touchR ? Thumb.START : Thumb.END;
+        }
 
         if (isSpanDraggingAllowed && trackRect.width() > 0) {
             float verticalHitTolerance = Math.max(trackWidth / 2f, thumbRadius) + thumbTouchRadiusPadding;

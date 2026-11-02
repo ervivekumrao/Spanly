@@ -44,7 +44,7 @@ val gitTssPass: String? = System.getenv("GIT_TSS_PASS") ?: secretProps.getProper
 
 val libGroupID = "io.github.ervivekumrao"
 val libArtifactID = "time-span-selector"
-val libVersion = "0.0.7-alpha"
+val libVersion = "1.0.0"
 
 android {
     namespace = "vivek.umrao.time.span.selector"

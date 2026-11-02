@@ -543,4 +543,80 @@ public class TimeSpanSelectorCoverageTest {
         circular.showSpanText(false);
         assertNull(circular.getCachedSpanTextLines());
     }
+
+    @Test
+    public void testLinearOverlappingThumbsMovement() {
+        LinearTimeSpanSelector selector = new LinearTimeSpanSelector(context);
+        selector.setThumbMinuteStep(1);
+        selector.setSpanInMinutes(600, 600); // Thumbs exactly overlapping at 10:00
+        assertEquals(600, selector.getSpanStartInMinutes());
+        assertEquals(600, selector.getSpanEndInMinutes());
+
+        selector.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
+                         View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY));
+        selector.layout(0, 0, 1000, 300);
+
+        // Touch the overlapping thumbs
+        float thumbX = selector.getPaddingLeft() + selector.getThumbRadius() +
+                (600f / 1440f) * (1000f - 2 * selector.getThumbRadius());
+        float thumbY = selector.getTrackCenterY();
+
+        // 1. Dragging right from overlapping position should expand the END thumb
+        MotionEvent down1 = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, thumbX, thumbY, 0);
+        assertTrue(selector.onTouchEvent(down1));
+
+        MotionEvent moveRight = MotionEvent.obtain(0, 50, MotionEvent.ACTION_MOVE, thumbX + 60f, thumbY, 0);
+        assertTrue(selector.onTouchEvent(moveRight));
+
+        MotionEvent up1 = MotionEvent.obtain(0, 100, MotionEvent.ACTION_UP, thumbX + 60f, thumbY, 0);
+        assertTrue(selector.onTouchEvent(up1));
+
+        assertEquals(600, selector.getSpanStartInMinutes());
+        assertTrue("End thumb must move right when dragging right from overlap", selector.getSpanEndInMinutes() > 600);
+
+        down1.recycle();
+        moveRight.recycle();
+        up1.recycle();
+
+        // 2. Dragging left from overlapping position should expand the START thumb
+        selector.setSpanInMinutes(600, 600);
+        MotionEvent down2 = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, thumbX, thumbY, 0);
+        assertTrue(selector.onTouchEvent(down2));
+
+        MotionEvent moveLeft = MotionEvent.obtain(0, 50, MotionEvent.ACTION_MOVE, thumbX - 60f, thumbY, 0);
+        assertTrue(selector.onTouchEvent(moveLeft));
+
+        MotionEvent up2 = MotionEvent.obtain(0, 100, MotionEvent.ACTION_UP, thumbX - 60f, thumbY, 0);
+        assertTrue(selector.onTouchEvent(up2));
+
+        assertEquals(600, selector.getSpanEndInMinutes());
+        assertTrue("Start thumb must move left when dragging left from overlap", selector.getSpanStartInMinutes() < 600);
+
+        down2.recycle();
+        moveLeft.recycle();
+        up2.recycle();
+
+        // 3. Test crossover: dragging START past END swaps thumbs seamlessly
+        selector.setSpanInMinutes(300, 500);
+        float startX = selector.getPaddingLeft() + selector.getThumbRadius() +
+                (300f / 1440f) * (1000f - 2 * selector.getThumbRadius());
+        float pastEndX = selector.getPaddingLeft() + selector.getThumbRadius() +
+                (600f / 1440f) * (1000f - 2 * selector.getThumbRadius());
+
+        MotionEvent downStart = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, startX, thumbY, 0);
+        assertTrue(selector.onTouchEvent(downStart));
+
+        MotionEvent movePastEnd = MotionEvent.obtain(0, 50, MotionEvent.ACTION_MOVE, pastEndX, thumbY, 0);
+        assertTrue(selector.onTouchEvent(movePastEnd));
+
+        MotionEvent upCrossover = MotionEvent.obtain(0, 100, MotionEvent.ACTION_UP, pastEndX, thumbY, 0);
+        assertTrue(selector.onTouchEvent(upCrossover));
+
+        assertEquals("Old end becomes new start upon crossover", 500, selector.getSpanStartInMinutes());
+        assertTrue("Dragged thumb becomes new end", selector.getSpanEndInMinutes() >= 590);
+
+        downStart.recycle();
+        movePastEnd.recycle();
+        upCrossover.recycle();
+    }
 }

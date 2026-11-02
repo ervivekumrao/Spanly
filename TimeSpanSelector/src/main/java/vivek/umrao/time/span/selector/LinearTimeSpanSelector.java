@@ -20,8 +20,10 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
@@ -48,9 +50,11 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
     private final Paint tickPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint tickLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint spanTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint blockedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final RectF trackRect = new RectF();
     private Thumb activeThumb = Thumb.NONE;
+    private int lastSpanDragMinutes = 0;
     private float spanTextY;
     private float tickY;
     private AccessibilityManager accessibilityManager;
@@ -329,6 +333,7 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
             spanTextY = currentY + margin;
         }
 
+        onSpanGradientChanged();
         updateTickGeometry();
     }
 
@@ -387,9 +392,10 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
     public boolean onTouchEvent(MotionEvent event) {
         if (!isEnabled()) return false;
         float x = event.getX();
+        float y = event.getY();
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
-                activeThumb = getActiveThumb(x);
+                activeThumb = getActiveThumb(x, y);
                 if (activeThumb != Thumb.NONE) {
                     if (dragChangeListener != null) {
                         if (!dragChangeListener.onDragStart(activeThumb)) {
@@ -397,15 +403,29 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
                             return false;
                         }
                     }
-                    float thumbCenterX = minutesToPosition(activeThumb == Thumb.START ? currentStartMinutes : currentEndMinutes);
-                    touchOffset = x - thumbCenterX;
+                    if (activeThumb == Thumb.SPAN) {
+                        lastSpanDragMinutes = positionToMinutes(x);
+                    } else {
+                        float thumbCenterX = minutesToPosition(activeThumb == Thumb.START ? currentStartMinutes : currentEndMinutes);
+                        touchOffset = x - thumbCenterX;
+                    }
                     if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
                     playSoundEffect(SoundEffectConstants.CLICK);
                     return true;
                 }
                 return false;
             case MotionEvent.ACTION_MOVE:
-                if (activeThumb != Thumb.NONE) {
+                if (activeThumb == Thumb.SPAN) {
+                    int currentPosMin = positionToMinutes(x);
+                    int delta = currentPosMin - lastSpanDragMinutes;
+                    int snappedDelta = TimeUtils.snapToStep(delta, thumbMinuteStep);
+                    if (snappedDelta != 0) {
+                        shiftSpan(snappedDelta);
+                        lastSpanDragMinutes = currentPosMin;
+                        performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                    }
+                    return true;
+                } else if (activeThumb != Thumb.NONE) {
                     float thumbTargetX = x - touchOffset;
                     int newMin = positionToMinutes(thumbTargetX);
                     newMin = TimeUtils.snapToStep(newMin, thumbMinuteStep);
@@ -453,12 +473,31 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         return true;
     }
 
-    private Thumb getActiveThumb(float x) {
+    private Thumb getActiveThumb(float x, float y) {
         float sX = minutesToPosition(currentStartMinutes);
         float eX = minutesToPosition(currentEndMinutes);
         float touchR = thumbRadius + thumbTouchRadiusPadding;
         if (Math.abs(x - sX) <= touchR && Math.abs(x - sX) <= Math.abs(x - eX)) return Thumb.START;
         if (Math.abs(x - eX) <= touchR) return Thumb.END;
+
+        if (isSpanDraggingAllowed && trackRect.width() > 0) {
+            float verticalHitTolerance = Math.max(trackWidth / 2f, thumbRadius) + thumbTouchRadiusPadding;
+            if (Math.abs(y - trackRect.centerY()) <= verticalHitTolerance) {
+                boolean inSpan;
+                if (isOvernight()) {
+                    float x24 = minutesToPosition(MINUTES_IN_DAY);
+                    float x0 = minutesToPosition(0);
+                    boolean inSegment1 = x >= Math.min(sX, x24) && x <= Math.max(sX, x24);
+                    boolean inSegment2 = x >= Math.min(x0, eX) && x <= Math.max(x0, eX);
+                    inSpan = inSegment1 || inSegment2;
+                } else {
+                    inSpan = x >= Math.min(sX, eX) && x <= Math.max(sX, eX);
+                }
+                if (inSpan) {
+                    return Thumb.SPAN;
+                }
+            }
+        }
         return Thumb.NONE;
     }
 
@@ -481,6 +520,19 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
     }
 
     @Override
+    protected void onSpanGradientChanged() {
+        if (spanGradientColors != null && spanGradientColors.length >= 2 && trackRect.width() > 0) {
+            LinearGradient gradient = new LinearGradient(
+                    trackRect.left, trackRect.top, trackRect.right, trackRect.top,
+                    spanGradientColors, null, Shader.TileMode.CLAMP);
+            spanPaint.setShader(gradient);
+        } else {
+            spanPaint.setShader(null);
+            spanPaint.setColor(spanColor);
+        }
+    }
+
+    @Override
     protected void onDraw(@NonNull Canvas canvas) {
         super.onDraw(canvas);
         if (isSpanTextShown && spanTextPosition == SpanTextPosition.TOP) {
@@ -488,6 +540,7 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         }
         trackPaint.setColor(trackColor);
         canvas.drawRoundRect(trackRect, trackRect.height() / 2, trackRect.height() / 2, trackPaint);
+        drawBlockedIntervals(canvas);
         if (showTicks) drawTicks(canvas);
         float sX = minutesToPosition(currentStartMinutes);
         float eX = minutesToPosition(currentEndMinutes);
@@ -504,6 +557,24 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         drawSingleThumb(canvas, eX, trackRect.centerY(), endThumbDrawable, endThumbDrawableTintColor);
         if (isSpanTextShown && (spanTextPosition == SpanTextPosition.BOTTOM || spanTextPosition == SpanTextPosition.CENTER)) {
             drawSpanText(canvas, spanTextY);
+        }
+    }
+
+    private void drawBlockedIntervals(@NonNull Canvas canvas) {
+        if (blockedIntervals.isEmpty() || trackRect.width() <= 0) return;
+        blockedPaint.setStyle(Paint.Style.FILL);
+        for (BlockedInterval interval : blockedIntervals) {
+            blockedPaint.setColor(interval.getColor());
+            float s = minutesToPosition(interval.getStartMinutes());
+            float e = minutesToPosition(interval.getEndMinutes());
+            if (interval.isOvernight()) {
+                float x24 = minutesToPosition(MINUTES_IN_DAY);
+                float x0 = minutesToPosition(0);
+                canvas.drawRect(Math.min(s, x24), trackRect.top, Math.max(s, x24), trackRect.bottom, blockedPaint);
+                canvas.drawRect(Math.min(x0, e), trackRect.top, Math.max(x0, e), trackRect.bottom, blockedPaint);
+            } else {
+                canvas.drawRect(Math.min(s, e), trackRect.top, Math.max(s, e), trackRect.bottom, blockedPaint);
+            }
         }
     }
 
@@ -571,5 +642,14 @@ public class LinearTimeSpanSelector extends BaseTimeSpanSelector {
         if (dh == 0) dh = 12;
         String ap = showAmPmLabels ? getContext().getString(h < 12 ? R.string.tss_am : R.string.tss_pm) : "";
         return ap.isEmpty() ? String.valueOf(dh) : dh + "\n" + ap;
+    }
+
+    /**
+     * Returns the vertical center coordinate of the track in pixels.
+     *
+     * @return Center Y in pixels.
+     */
+    public float getTrackCenterY() {
+        return trackRect.centerY();
     }
 }

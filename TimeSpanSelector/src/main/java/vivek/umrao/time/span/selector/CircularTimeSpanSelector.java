@@ -20,8 +20,10 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.SweepGradient;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
@@ -54,11 +56,13 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
     private final Paint thumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint thumbShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint thumbStrokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint blockedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private float cx, cy, viewRadius;
     private final RectF drawingOval = new RectF();
 
     private Thumb activeThumb = Thumb.NONE;
+    private int lastSpanDragMinutes = 0;
     private AccessibilityManager accessibilityManager;
 
     private static class CircularLabelItem {
@@ -343,6 +347,7 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
 
         if (viewRadius > 0) {
             drawingOval.set(cx - viewRadius, cy - viewRadius, cx + viewRadius, cy + viewRadius);
+            onSpanGradientChanged();
             updateTickGeometry();
         } else {
             drawingOval.setEmpty();
@@ -410,15 +415,44 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
     }
 
     @Override
+    protected void onSpanGradientChanged() {
+        if (spanGradientColors != null && spanGradientColors.length >= 2 && viewRadius > 0) {
+            SweepGradient sweep = new SweepGradient(cx, cy, spanGradientColors, null);
+            Matrix matrix = new Matrix();
+            matrix.setRotate(-90, cx, cy);
+            sweep.setLocalMatrix(matrix);
+            spanPaint.setShader(sweep);
+        } else {
+            spanPaint.setShader(null);
+            spanPaint.setColor(spanColor);
+        }
+    }
+
+    @Override
     protected void onDraw(@NonNull Canvas canvas) {
         super.onDraw(canvas);
         if (viewRadius <= 0 || drawingOval.isEmpty()) return;
 
         canvas.drawCircle(cx, cy, viewRadius, ringPaint);
+        drawBlockedIntervals(canvas);
         drawTicksAndLabels(canvas);
         drawSpanArc(canvas);
         drawThumb(canvas);
         drawSpanText(canvas);
+    }
+
+    private void drawBlockedIntervals(@NonNull Canvas canvas) {
+        if (blockedIntervals.isEmpty() || viewRadius <= 0) return;
+        blockedPaint.setStyle(Paint.Style.STROKE);
+        blockedPaint.setStrokeWidth(trackWidth);
+        blockedPaint.setStrokeCap(Paint.Cap.BUTT);
+        for (BlockedInterval interval : blockedIntervals) {
+            blockedPaint.setColor(interval.getColor());
+            float sAngle = minutesToAngle(interval.getStartMinutes());
+            float eAngle = minutesToAngle(interval.getEndMinutes());
+            float sweep = calculateSweepAngle(sAngle, eAngle);
+            canvas.drawArc(drawingOval, sAngle - 90, sweep, false, blockedPaint);
+        }
     }
 
     private void drawSpanText(Canvas canvas) {
@@ -539,6 +573,7 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
                             return false;
                         }
                     }
+                    lastSpanDragMinutes = minutes;
                     if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
                     // Do not jump thumb position on initial touch down
                     playSoundEffect(SoundEffectConstants.CLICK);
@@ -546,7 +581,18 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
                 }
                 return false;
             case MotionEvent.ACTION_MOVE:
-                if (activeThumb != Thumb.NONE) {
+                if (activeThumb == Thumb.SPAN) {
+                    int delta = minutes - lastSpanDragMinutes;
+                    if (delta > TimeUtils.MINUTES_IN_DAY / 2) delta -= TimeUtils.MINUTES_IN_DAY;
+                    else if (delta < -TimeUtils.MINUTES_IN_DAY / 2) delta += TimeUtils.MINUTES_IN_DAY;
+                    int snappedDelta = TimeUtils.snapToStep(delta, thumbMinuteStep);
+                    if (snappedDelta != 0) {
+                        shiftSpan(snappedDelta);
+                        lastSpanDragMinutes = minutes;
+                        performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                    }
+                    return true;
+                } else if (activeThumb != Thumb.NONE) {
                     updatePosition(minutes);
                     return true;
                 }
@@ -591,6 +637,18 @@ public class CircularTimeSpanSelector extends BaseTimeSpanSelector {
         if (d1 <= r && d2 <= r) return d1 < d2 ? Thumb.START : Thumb.END;
         if (d1 <= r) return Thumb.START;
         if (d2 <= r) return Thumb.END;
+
+        if (isSpanDraggingAllowed && viewRadius > 0) {
+            float distFromCenter = (float) Math.hypot(x - cx, y - cy);
+            float trackHitTolerance = Math.max(trackWidth / 2f, thumbRadius) + thumbTouchRadiusPadding;
+            if (Math.abs(distFromCenter - viewRadius) <= trackHitTolerance) {
+                float touchAngle = calculateAngleFromPoint(x, y);
+                boolean inSpan = isOvernight() ? (touchAngle >= sAngle || touchAngle <= eAngle) : (touchAngle >= sAngle && touchAngle <= eAngle);
+                if (inSpan) {
+                    return Thumb.SPAN;
+                }
+            }
+        }
         return Thumb.NONE;
     }
 

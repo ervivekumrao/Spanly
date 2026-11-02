@@ -50,9 +50,16 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
     private static final String KEY_SHOW_SPAN_TEXT = "show_span_text";
     private static final String KEY_SPAN_TEXT_FORMAT = "span_text_format";
     private static final String KEY_SPAN_TEXT_POSITION = "span_text_position";
+    private static final String KEY_SPAN_DRAGGING_ALLOWED = "span_dragging_allowed";
 
     @Nullable
     protected String[] cachedSpanTextLines;
+
+    protected boolean isSpanDraggingAllowed = true;
+    @Nullable
+    @ColorInt
+    protected int[] spanGradientColors;
+    protected final java.util.List<BlockedInterval> blockedIntervals = new java.util.ArrayList<>();
 
     protected OnSpanChangeListener spanChangeListener;
     protected OnTimeChangeListener timeChangeListener;
@@ -1577,6 +1584,85 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
         return String.format(spanTextFormat, startStr, endStr);
     }
 
+    @Override
+    public void setSpanDraggingAllowed(boolean allowed) {
+        this.isSpanDraggingAllowed = allowed;
+    }
+
+    @Override
+    public boolean isSpanDraggingAllowed() {
+        return isSpanDraggingAllowed;
+    }
+
+    @Override
+    public void shiftSpan(int minuteDelta) {
+        if (minuteDelta == 0) return;
+        int duration = getDurationInMinutes();
+        int newStart = (currentStartMinutes + minuteDelta + MINUTES_IN_DAY) % MINUTES_IN_DAY;
+        int newEnd = (currentEndMinutes + minuteDelta + MINUTES_IN_DAY) % MINUTES_IN_DAY;
+
+        if (!isOvernightSpanAllowed) {
+            if (newStart + duration > MINUTES_IN_DAY) {
+                newStart = MINUTES_IN_DAY - duration;
+                newEnd = MINUTES_IN_DAY;
+            } else if (newStart < 0) {
+                newStart = 0;
+                newEnd = duration;
+            } else {
+                newEnd = newStart + duration;
+            }
+        }
+
+        if (this.currentStartMinutes != newStart || this.currentEndMinutes != newEnd) {
+            this.currentStartMinutes = newStart;
+            this.currentEndMinutes = newEnd;
+            updateCachedSpanText();
+            invalidate();
+            notifySpanChanged(false);
+
+            if (timeChangeListener != null) {
+                timeChangeListener.onStartTimeChange(newStart);
+                timeChangeListener.onEndTimeChange(newEnd);
+            }
+        }
+    }
+
+    @Override
+    public void setSpanGradientColors(@Nullable @ColorInt int[] colors) {
+        this.spanGradientColors = colors;
+        onSpanGradientChanged();
+        invalidate();
+    }
+
+    protected void onSpanGradientChanged() {
+        // Overridden by subclasses to configure Canvas shaders
+    }
+
+    @Nullable
+    @Override
+    @ColorInt
+    public int[] getSpanGradientColors() {
+        return spanGradientColors;
+    }
+
+    @Override
+    public void addBlockedInterval(int startMinutes, int endMinutes, @ColorInt int color) {
+        blockedIntervals.add(new BlockedInterval(startMinutes, endMinutes, color));
+        invalidate();
+    }
+
+    @Override
+    public void clearBlockedIntervals() {
+        blockedIntervals.clear();
+        invalidate();
+    }
+
+    @NonNull
+    @Override
+    public java.util.List<BlockedInterval> getBlockedIntervals() {
+        return java.util.Collections.unmodifiableList(blockedIntervals);
+    }
+
     @Nullable
     @Override
     protected Parcelable onSaveInstanceState() {
@@ -1595,6 +1681,7 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
         bundle.putBoolean(KEY_SHOW_SPAN_TEXT, isSpanTextShown);
         bundle.putString(KEY_SPAN_TEXT_FORMAT, spanTextFormat);
         bundle.putString(KEY_SPAN_TEXT_POSITION, spanTextPosition.name());
+        bundle.putBoolean(KEY_SPAN_DRAGGING_ALLOWED, isSpanDraggingAllowed);
         return bundle;
     }
 
@@ -1621,6 +1708,7 @@ public abstract class BaseTimeSpanSelector extends View implements TimeSpanSelec
                 } catch (IllegalArgumentException ignored) {
                 }
             }
+            isSpanDraggingAllowed = bundle.getBoolean(KEY_SPAN_DRAGGING_ALLOWED, isSpanDraggingAllowed);
             updateCachedSpanText();
             super.onRestoreInstanceState(bundle.getParcelable(KEY_SUPER_STATE));
             invalidate();

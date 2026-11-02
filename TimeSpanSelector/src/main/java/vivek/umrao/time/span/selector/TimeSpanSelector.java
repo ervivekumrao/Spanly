@@ -77,7 +77,7 @@ public interface TimeSpanSelector {
 
     enum TickEdgeStyle {ROUND, BUTT}
 
-    enum Thumb {START, END, NONE}
+    enum Thumb {START, END, SPAN, NONE}
 
     interface OnSpanChangeListener {
         /**
@@ -988,4 +988,63 @@ public interface TimeSpanSelector {
      * @param is24HourFormat True for 24-hour, false for 12-hour.
      */
     void set24HourFormat(boolean is24HourFormat);
+
+    /**
+     * Set whether sliding along the active span can drag the entire time window.
+     *
+     * @param allowed True to allow dragging the whole span, false to disable.
+     */
+    void setSpanDraggingAllowed(boolean allowed);
+
+    /**
+     * Check if whole-span dragging is allowed.
+     *
+     * @return True if allowed.
+     */
+    boolean isSpanDraggingAllowed();
+
+    /**
+     * Shifts the entire time span by the given minute offset, preserving duration.
+     *
+     * @param minuteDelta Positive to shift forward in time, negative to shift backward.
+     */
+    void shiftSpan(int minuteDelta);
+
+    /**
+     * Set custom gradient colors for the active span track.
+     *
+     * @param colors Array of colors (at least 2), or null to use a solid color.
+     */
+    void setSpanGradientColors(@Nullable @ColorInt int[] colors);
+
+    /**
+     * Get the custom gradient colors for the active span track.
+     *
+     * @return Array of colors or null.
+     */
+    @Nullable
+    @ColorInt
+    int[] getSpanGradientColors();
+
+    /**
+     * Adds a blocked or unavailable interval rendered on the track.
+     *
+     * @param startMinutes Start time in minutes from midnight (0-1439).
+     * @param endMinutes   End time in minutes from midnight (0-1439).
+     * @param color        Color used to render the blocked segment.
+     */
+    void addBlockedInterval(int startMinutes, int endMinutes, @ColorInt int color);
+
+    /**
+     * Clears all blocked intervals.
+     */
+    void clearBlockedIntervals();
+
+    /**
+     * Returns the list of configured blocked intervals.
+     *
+     * @return List of blocked intervals.
+     */
+    @NonNull
+    java.util.List<BlockedInterval> getBlockedIntervals();
 }

@@ -48,7 +48,7 @@ val libVersion = "0.0.7-alpha"
 
 android {
     namespace = "vivek.umrao.time.span.selector"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 24

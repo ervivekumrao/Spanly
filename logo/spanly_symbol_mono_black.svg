@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">Spanly Symbol Monochrome Black</title>
+
+  <!-- Track -->
+  <circle cx="128" cy="128" r="92" fill="none" stroke="#000000" stroke-width="14" stroke-dasharray="6 6"/>
+
+  <!-- 'S' Arc -->
+  <path fill="none" stroke="#000000" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"
+        d="M 172 70 A 46 46 0 0 0 82 84 C 82 118 174 138 174 172 A 46 46 0 0 1 84 186"/>
+
+  <!-- Start Handle -->
+  <circle cx="172" cy="70" r="15" fill="#FFFFFF" stroke="#000000" stroke-width="6"/>
+  <circle cx="172" cy="70" r="5" fill="#000000"/>
+
+  <!-- End Handle -->
+  <circle cx="84" cy="186" r="15" fill="#FFFFFF" stroke="#000000" stroke-width="6"/>
+  <circle cx="84" cy="186" r="5" fill="#000000"/>
+</svg>

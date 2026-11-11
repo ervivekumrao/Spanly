@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright 2025 Vivek Umrao
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+<resources>
+    <!-- Common Attributes for Time Span Selectors -->
+    <attr name="tss_thumbMinuteStep" format="integer" />
+    <attr name="tss_allowOvernightSpan" format="boolean" />
+    <attr name="tss_is24HourFormat" format="boolean" />
+    <attr name="tss_minDurationMinutes" format="integer" />
+    <attr name="tss_maxDurationMinutes" format="integer" />
+
+    <attr name="tss_trackColor" format="color" />
+    <attr name="tss_spanColor" format="color" />
+    <attr name="tss_trackWidth" format="dimension" />
+    <attr name="tss_thumbRadius" format="dimension" />
+    <attr name="tss_thumbTouchRadiusPadding" format="dimension" />
+    <attr name="tss_thumbStrokeWidth" format="dimension" />
+
+    <attr name="tss_hourTickHeight" format="dimension" />
+    <attr name="tss_minuteTickHeight" format="dimension" />
+    <attr name="tss_hourTickWidth" format="dimension" />
+    <attr name="tss_minuteTickWidth" format="dimension" />
+    <attr name="tss_hourTickColor" format="color" />
+    <attr name="tss_minuteTickColor" format="color" />
+
+    <attr name="tss_showTicks" format="boolean" />
+    <attr name="tss_showTickLabels" format="boolean" />
+    <attr name="tss_tickDistanceFromTrack" format="dimension" />
+    <attr name="tss_tickEdgeStyle" format="enum">
+        <enum name="round" value="0" />
+        <enum name="butt" value="1" />
+    </attr>
+
+    <attr name="tss_showAmPmLabels" format="boolean" />
+    <attr name="tss_tickLabelSize" format="dimension" />
+    <attr name="tss_tickLabelColor" format="color" />
+    <attr name="tss_tickLabelStyle" format="enum">
+        <enum name="normal" value="0" />
+        <enum name="bold" value="1" />
+        <enum name="italic" value="2" />
+        <enum name="bold_italic" value="3" />
+    </attr>
+    <attr name="tss_tickLabelDistanceFromTick" format="dimension" />
+
+    <attr name="tss_startThumbDrawable" format="reference" />
+    <attr name="tss_endThumbDrawable" format="reference" />
+    <attr name="tss_startThumbDrawableTintColor" format="color" />
+    <attr name="tss_endThumbDrawableTintColor" format="color" />
+    <attr name="tss_thumbFillColor" format="color" />
+    <attr name="tss_thumbStrokeColor" format="color" />
+    <attr name="tss_thumbShadowDx" format="dimension" />
+    <attr name="tss_thumbShadowDy" format="dimension" />
+    <attr name="tss_thumbElevation" format="dimension" />
+    <attr name="tss_thumbShadowColor" format="color" />
+
+    <attr name="tss_showSpanText" format="boolean" />
+    <attr name="tss_textColor" format="color" />
+    <attr name="tss_spanTextColor" format="color" />
+    <attr name="tss_spanTextSize" format="dimension" />
+    <attr name="tss_spanTextFormat" format="string" />
+    <attr name="tss_spanTextStyle" format="enum">
+        <enum name="normal" value="0" />
+        <enum name="bold" value="1" />
+        <enum name="italic" value="2" />
+        <enum name="bold_italic" value="3" />
+    </attr>
+    <attr name="tss_spanTextPosition" format="enum">
+        <enum name="top" value="0" />
+        <enum name="bottom" value="1" />
+        <enum name="center" value="2" />
+    </attr>
+
+    <attr name="tss_spanStartInMinutes" format="integer" />
+    <attr name="tss_spanEndInMinutes" format="integer" />
+    <attr name="tss_spanStartTime" format="string|reference" />
+    <attr name="tss_spanEndTime" format="string|reference" />
+
+    <declare-styleable name="SpanlyDial">
+        <attr name="tss_thumbMinuteStep" />
+        <attr name="tss_allowOvernightSpan" />
+        <attr name="tss_is24HourFormat" />
+        <attr name="tss_minDurationMinutes" />
+        <attr name="tss_maxDurationMinutes" />
+        <attr name="tss_trackColor" />
+        <attr name="tss_spanColor" />
+        <attr name="tss_trackWidth" />
+        <attr name="tss_thumbRadius" />
+        <attr name="tss_thumbTouchRadiusPadding" />
+        <attr name="tss_thumbStrokeWidth" />
+        <attr name="tss_hourTickHeight" />
+        <attr name="tss_minuteTickHeight" />
+        <attr name="tss_hourTickWidth" />
+        <attr name="tss_minuteTickWidth" />
+        <attr name="tss_hourTickColor" />
+        <attr name="tss_minuteTickColor" />
+        <attr name="tss_showTicks" />
+        <attr name="tss_showTickLabels" />
+        <attr name="tss_tickDistanceFromTrack" />
+        <attr name="tss_tickEdgeStyle" />
+        <attr name="tss_showAmPmLabels" />
+        <attr name="tss_tickLabelSize" />
+        <attr name="tss_tickLabelColor" />
+        <attr name="tss_tickLabelStyle" />
+        <attr name="tss_tickLabelDistanceFromTick" />
+        <attr name="tss_startThumbDrawable" />
+        <attr name="tss_endThumbDrawable" />
+        <attr name="tss_startThumbDrawableTintColor" />
+        <attr name="tss_endThumbDrawableTintColor" />
+        <attr name="tss_thumbFillColor" />
+        <attr name="tss_thumbStrokeColor" />
+        <attr name="tss_thumbShadowDx" />
+        <attr name="tss_thumbShadowDy" />
+        <attr name="tss_thumbElevation" />
+        <attr name="tss_thumbShadowColor" />
+        <attr name="tss_showSpanText" />
+        <attr name="tss_textColor" />
+        <attr name="tss_spanTextColor" />
+        <attr name="tss_spanTextSize" />
+        <attr name="tss_spanTextFormat" />
+        <attr name="tss_spanTextStyle" />
+        <attr name="tss_spanTextPosition" />
+        <attr name="tss_spanStartInMinutes" />
+        <attr name="tss_spanEndInMinutes" />
+        <attr name="tss_spanStartTime" />
+        <attr name="tss_spanEndTime" />
+    </declare-styleable>
+
+    <declare-styleable name="SpanlySlider">
+        <attr name="tss_thumbMinuteStep" />
+        <attr name="tss_allowOvernightSpan" />
+        <attr name="tss_is24HourFormat" />
+        <attr name="tss_minDurationMinutes" />
+        <attr name="tss_maxDurationMinutes" />
+        <attr name="tss_trackColor" />
+        <attr name="tss_spanColor" />
+        <attr name="tss_trackWidth" />
+        <attr name="tss_thumbRadius" />
+        <attr name="tss_thumbTouchRadiusPadding" />
+        <attr name="tss_thumbStrokeWidth" />
+        <attr name="tss_hourTickHeight" />
+        <attr name="tss_minuteTickHeight" />
+        <attr name="tss_hourTickWidth" />
+        <attr name="tss_minuteTickWidth" />
+        <attr name="tss_hourTickColor" />
+        <attr name="tss_minuteTickColor" />
+        <attr name="tss_showTicks" />
+        <attr name="tss_showTickLabels" />
+        <attr name="tss_tickDistanceFromTrack" />
+        <attr name="tss_tickEdgeStyle" />
+        <attr name="tss_showAmPmLabels" />
+        <attr name="tss_tickLabelSize" />
+        <attr name="tss_tickLabelColor" />
+        <attr name="tss_tickLabelStyle" />
+        <attr name="tss_tickLabelDistanceFromTick" />
+        <attr name="tss_startThumbDrawable" />
+        <attr name="tss_endThumbDrawable" />
+        <attr name="tss_startThumbDrawableTintColor" />
+        <attr name="tss_endThumbDrawableTintColor" />
+        <attr name="tss_thumbFillColor" />
+        <attr name="tss_thumbStrokeColor" />
+        <attr name="tss_thumbShadowDx" />
+        <attr name="tss_thumbShadowDy" />
+        <attr name="tss_thumbElevation" />
+        <attr name="tss_thumbShadowColor" />
+        <attr name="tss_showSpanText" />
+        <attr name="tss_textColor" />
+        <attr name="tss_spanTextColor" />
+        <attr name="tss_spanTextSize" />
+        <attr name="tss_spanTextFormat" />
+        <attr name="tss_spanTextStyle" />
+        <attr name="tss_spanTextPosition" />
+        <attr name="tss_spanStartInMinutes" />
+        <attr name="tss_spanEndInMinutes" />
+        <attr name="tss_spanStartTime" />
+        <attr name="tss_spanEndTime" />
+    </declare-styleable>
+</resources>

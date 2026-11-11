@@ -23,7 +23,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Spanly"
 
-if (file("app").exists()) {
-    include(":app")
-}
-include(":TimeSpanSelector")
+include(":Spanly")
